@@ -104,33 +104,11 @@ void pollTouch(Navigation& navigation) {
       return;
     } else return;
   } else if (navigation.screen == SCREEN_TEAM) {
-    // TEAM uses the same rounded-corner bezel and bottom navigation lane.
-    if (teamDataAvailable() && tap && startX >= 220 && startY >= 418 && startY < 480) {
-      navigation.screen = SCREEN_MEMBERS;
-      navigation.membersPage = 0;
-      changed = true;
-    } else if ((tap && startX < 195 && startY >= 418) ||
-               (absDy > 60 && absDy > absDx * 3 / 2 && dy > 0)) {
+    // Single GANG information screen; no roster subpage or paging.
+    if ((tap && startX < 230 && startY >= 418) ||
+        (absDy > 60 && absDy > absDx * 3 / 2 && dy > 0)) {
       navigation.screen = SCREEN_CARD;
       changed = true;
-    } else return;
-  } else if (navigation.screen == SCREEN_MEMBERS) {
-    if ((tap && startX < 190 && startY >= 420) ||
-        (absDy > 60 && absDy > absDx * 3 / 2 && dy > 0)) {
-      navigation.screen = SCREEN_TEAM;
-      changed = true;
-    } else if ((tap && startY >= 418 && startY < 478 &&
-                startX >= 320 && startX < 391) ||
-               (absDx > 60 && absDx > absDy * 3 / 2 && dx < 0)) {
-      if (static_cast<uint32_t>(navigation.membersPage) + 1 < teamRosterPageCount()) {
-        ++navigation.membersPage; changed = true;
-      }
-    } else if ((tap && startY >= 418 && startY < 478 &&
-                startX >= 150 && startX < 215) ||
-               (absDx > 60 && absDx > absDy * 3 / 2 && dx > 0)) {
-      if (navigation.membersPage > 0) {
-        --navigation.membersPage; changed = true;
-      }
     } else return;
   } else if (navigation.screen == SCREEN_SETTINGS) {
     if ((absDy > 60 && absDy > absDx * 3 / 2 && dy > 0) ||

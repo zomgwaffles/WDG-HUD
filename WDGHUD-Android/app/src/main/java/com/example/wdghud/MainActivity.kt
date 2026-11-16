@@ -921,9 +921,12 @@ class MainActivity : ComponentActivity() {
     private val teamExecutor = Executors.newSingleThreadExecutor()
     private var teamSnapshot: TeamProfileWire.Team? = null
     private var teamSnapshotKey = ""
-    private var teamSnapshotLoaded = false // distinguishes no-team from uncached
-    private var teamFetchedAt = 0L
+    private var teamSnapshotLoaded = false // null team is a valid, cached 404
+    private var teamFetchedAt = 0L // wall-clock epoch; survives process restart
     private var teamFetching = false
+    private var teamLastAttemptAt = 0L // elapsedRealtime failure backoff
+    private var teamNeedsResponse = false // watch is waiting for an uncached fetch
+    private var teamRequestedPage: Int? = null
     private var teamDeferredPage: Int? = null
     private var teamPackets = emptyList<String>()
     private var teamPacketIndex = 0
@@ -936,7 +939,7 @@ class MainActivity : ComponentActivity() {
             val now = android.os.SystemClock.elapsedRealtime()
             if (teamAwaiting != null) {
                 if (now - teamAckAt > 6000L) {
-                    Log.w(TAG, "G5A45 TEAM ACK timeout $teamAwaiting")
+                    Log.w(TAG, "G5A45.5 TEAM ACK timeout $teamAwaiting")
                     clearTeamTransfer()
                     return
                 }
@@ -965,41 +968,96 @@ class MainActivity : ComponentActivity() {
         teamPackets = packets
         cellHandler.post(teamPump)
     }
-    private fun requestTeam(page: Int?) {
-        if (!activityHasFocusForBle || !ready) return
-        if (page != null && (teamFetching || teamPackets.isNotEmpty())) {
-            teamDeferredPage = page
-            return
+    private fun loadCachedTeam(key: String, rereadDisk: Boolean = false) {
+        if (teamSnapshotKey != key) {
+            teamSnapshotKey = key
+            teamSnapshotLoaded = false
+            teamSnapshot = null
+            teamFetchedAt = 0L
+        } else if (teamSnapshotLoaded && !rereadDisk) return
+        // A different BLE owner may have refreshed the shared disk cache.
+        TeamSnapshotStore.load(applicationContext, key)?.let { entry ->
+            if (!teamSnapshotLoaded || entry.fetchedAtEpochMs > teamFetchedAt) {
+                teamSnapshot = entry.team
+                teamSnapshotLoaded = true
+                teamFetchedAt = entry.fetchedAtEpochMs
+            }
         }
-        val key = apiKey.trim()
-        if (key.isBlank()) { queueTeamPackets(listOf("TEAM,ERR")); return }
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (teamSnapshotLoaded && teamSnapshotKey == key &&
-            now - teamFetchedAt < TeamProfileWire.CACHE_MS) {
-            queueTeamPackets(if(page==null) TeamProfileWire.summary(teamSnapshot)
-                else TeamProfileWire.page(teamSnapshot,page))
-            return
-        }
-        if (teamFetching) return
+    }
+    private fun maybeRefreshTeam(key: String) {
+        if (teamFetching || key.isBlank() || !activityHasFocusForBle) return
+        val age = System.currentTimeMillis() - teamFetchedAt
+        if (teamSnapshotLoaded && age in 0 until TeamProfileWire.CACHE_MS) return
+        val elapsed = android.os.SystemClock.elapsedRealtime()
+        if (teamLastAttemptAt != 0L && elapsed - teamLastAttemptAt < 60_000L) return
+        teamLastAttemptAt = elapsed
         teamFetching = true
         teamExecutor.execute {
             var snapshot: TeamProfileWire.Team? = null
             var ok = false
             try { snapshot = TeamProfileWire.fetch(key); ok = true }
-            catch(e: Exception) { Log.w(TAG,"G5A45 team fetch failed: ${e.javaClass.simpleName}: ${e.message}") }
+            catch (e: Exception) {
+                Log.w(TAG, "G5A45.5 TEAM background fetch: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            val fetched = System.currentTimeMillis()
+            if (ok) TeamSnapshotStore.save(applicationContext, key, snapshot, fetched)
             runOnUiThread {
                 teamFetching = false
+                if (apiKey.trim() != key) return@runOnUiThread
+                // Push only when a COMPLETE newly fetched snapshot actually differs.
+                // The watch stores it in NVS; a timed API refresh never blanks it.
+                val teamChanged = ok && (!teamSnapshotLoaded || TeamProfileWire.summary(teamSnapshot) != TeamProfileWire.summary(snapshot))
                 if (ok) {
                     teamSnapshot = snapshot
                     teamSnapshotKey = key
                     teamSnapshotLoaded = true
-                    teamFetchedAt = android.os.SystemClock.elapsedRealtime()
+                    teamFetchedAt = fetched
                 }
-                if (activityHasFocusForBle && ready) {
-                    queueTeamPackets(if(!ok) listOf("TEAM,ERR") else if(page==null)
-                        TeamProfileWire.summary(teamSnapshot) else TeamProfileWire.page(teamSnapshot,page))
+                if (teamNeedsResponse && activityHasFocusForBle && ready) {
+                    val requested = teamRequestedPage
+                    teamNeedsResponse = false
+                    teamRequestedPage = null
+                    queueTeamPackets(if (!teamSnapshotLoaded) listOf("TEAM,ERR")
+                        else if (requested == null) TeamProfileWire.summary(teamSnapshot)
+                        else TeamProfileWire.page(teamSnapshot, requested))
+                } else if (teamChanged && activityHasFocusForBle && ready &&
+                    teamPackets.isEmpty() && operatorProfilePackets.isEmpty()) {
+                    // Opportunistic idle-time delivery, even when TEAM is not open.
+                    queueTeamPackets(TeamProfileWire.summary(teamSnapshot))
                 }
             }
+        }
+    }
+    private fun requestTeam(page: Int?) {
+        if (!activityHasFocusForBle || !ready) return
+        if (page != null && teamPackets.isNotEmpty()) { teamDeferredPage = page; return }
+        val key = apiKey.trim()
+        if (key.isBlank()) { queueTeamPackets(listOf("TEAM,ERR")); return }
+        loadCachedTeam(key)
+        if (teamSnapshotLoaded) {
+            // Return last-good cached data immediately; refresh is nonblocking.
+            queueTeamPackets(if (page == null) TeamProfileWire.summary(teamSnapshot)
+                else TeamProfileWire.page(teamSnapshot, page))
+            maybeRefreshTeam(key)
+        } else {
+            // No snapshot yet: wait for the single in-flight background fetch.
+            teamNeedsResponse = true
+            teamRequestedPage = page
+            maybeRefreshTeam(key)
+            // A recent failed attempt is throttled: report an error, not an endless spinner.
+            if (!teamFetching) {
+                teamNeedsResponse = false
+                queueTeamPackets(listOf("TEAM,ERR"))
+            }
+        }
+    }
+    private val teamBackgroundRefresh = object : Runnable {
+        override fun run() {
+            if (activityHasFocusForBle) {
+                val key = apiKey.trim()
+                if (key.isNotBlank()) { loadCachedTeam(key, rereadDisk = true); maybeRefreshTeam(key) }
+            }
+            cellHandler.postDelayed(this, 60_000L)
         }
     }
     private fun onTeamMessage(message: String): Boolean {
@@ -2689,6 +2747,7 @@ class MainActivity : ComponentActivity() {
         operatorProfileExecutor.shutdownNow()
         teamExecutor.shutdownNow()
         cellHandler.removeCallbacks(teamPump)
+        cellHandler.removeCallbacks(teamBackgroundRefresh)
         try { watchGatt?.disconnect() } catch (_: SecurityException) { }
         watchGatt?.close()
         watchGatt = null
@@ -2731,6 +2790,7 @@ class MainActivity : ComponentActivity() {
         gpsRetryHandler.post(gpsRetryTick)
         autoRefreshHandler.postDelayed(autoRefreshTick, 10000L)
         cellHandler.post(geoPump)
+        cellHandler.postDelayed(teamBackgroundRefresh, 15_000L)
         reconnectHandler.postDelayed(reconnectTick, 2_000L)
         setContent {
             val permissions = if (Build.VERSION.SDK_INT >= 31) {

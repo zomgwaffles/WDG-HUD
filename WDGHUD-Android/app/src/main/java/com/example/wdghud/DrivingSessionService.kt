@@ -467,8 +467,11 @@ class DrivingSessionService : Service() {
     private var teamSnapshot: TeamProfileWire.Team? = null
     private var teamSnapshotKey = ""
     private var teamSnapshotLoaded = false
-    private var teamFetchedAt = 0L
+    private var teamFetchedAt = 0L // wall-clock epoch, persists across owners
     private var teamFetching = false
+    private var teamLastAttemptAt = 0L
+    private var teamNeedsResponse = false
+    private var teamRequestedPage: Int? = null
     private var teamDeferredPage: Int? = null
     private var teamPackets = emptyList<String>()
     private var teamPacketIndex = 0
@@ -482,7 +485,7 @@ class DrivingSessionService : Service() {
             awaitingCenter!=null || geoQueue.active || geoQueue.waitingForAck ||
             operatorProfilePackets.isNotEmpty()) return
         if (teamAwaiting!=null) {
-            if (now()-teamAckAt>6000L) { log("G5A45 TEAM ACK timeout");resetTeamTransfer() }
+            if (now()-teamAckAt>6000L) { log("G5A45.5 TEAM ACK timeout");resetTeamTransfer() }
             return
         }
         val packet=teamPackets[teamPacketIndex]
@@ -491,36 +494,86 @@ class DrivingSessionService : Service() {
             teamAckAt=now()
         }
     }
-    private fun requestTeam(page: Int?) {
-        if (activityVisible || gatt==null || mtu<64) return
-        if (page!=null && (teamFetching || teamPackets.isNotEmpty())) {
-            teamDeferredPage=page;return
+    private fun loadCachedTeam(key: String, rereadDisk: Boolean = false) {
+        if (teamSnapshotKey != key) {
+            teamSnapshotKey = key
+            teamSnapshotLoaded = false
+            teamSnapshot = null
+            teamFetchedAt = 0L
+        } else if (teamSnapshotLoaded && !rereadDisk) return
+        // A different BLE owner may have refreshed the shared disk cache.
+        TeamSnapshotStore.load(applicationContext, key)?.let { entry ->
+            if (!teamSnapshotLoaded || entry.fetchedAtEpochMs > teamFetchedAt) {
+                teamSnapshot = entry.team
+                teamSnapshotLoaded = true
+                teamFetchedAt = entry.fetchedAtEpochMs
+            }
         }
-        val key=readApiKey()
-        if (key.isBlank()) {resetTeamTransfer();teamPackets=listOf("TEAM,ERR");return}
-        if (teamSnapshotLoaded && teamSnapshotKey==key &&
-            now()-teamFetchedAt<TeamProfileWire.CACHE_MS) {
-            resetTeamTransfer()
-            teamPackets=if(page==null) TeamProfileWire.summary(teamSnapshot)
-                else TeamProfileWire.page(teamSnapshot,page)
-            return
-        }
-        if (teamFetching) return
-        teamFetching=true
+    }
+    private fun maybeRefreshTeam(key: String) {
+        if (teamFetching || key.isBlank() || activityVisible || !active) return
+        val age = System.currentTimeMillis() - teamFetchedAt
+        if (teamSnapshotLoaded && age in 0 until TeamProfileWire.CACHE_MS) return
+        val elapsed = now()
+        if (teamLastAttemptAt != 0L && elapsed - teamLastAttemptAt < 60_000L) return
+        teamLastAttemptAt = elapsed
+        teamFetching = true
         teamExecutor.execute {
             var snapshot: TeamProfileWire.Team?=null
             var ok=false
-            try {snapshot=TeamProfileWire.fetch(key);ok=true}
-            catch(e:Exception) {log("G5A45 team fetch failed: ${e.javaClass.simpleName}: ${e.message}")}
+            try { snapshot=TeamProfileWire.fetch(key);ok=true }
+            catch(e:Exception) {log("G5A45.5 TEAM background fetch: ${e.javaClass.simpleName}: ${e.message}")}
+            val fetched=System.currentTimeMillis()
+            if(ok) TeamSnapshotStore.save(applicationContext,key,snapshot,fetched)
             main.post {
                 teamFetching=false
-                if (ok) {teamSnapshot=snapshot;teamSnapshotKey=key;teamSnapshotLoaded=true;teamFetchedAt=now()}
-                if (!activityVisible && gatt!=null && mtu>=64) {
+                if(readApiKey()!=key) return@post
+                val teamChanged=ok && (!teamSnapshotLoaded || TeamProfileWire.summary(teamSnapshot) != TeamProfileWire.summary(snapshot))
+                if(ok) {
+                    teamSnapshot=snapshot;teamSnapshotKey=key
+                    teamSnapshotLoaded=true;teamFetchedAt=fetched
+                }
+                if(teamNeedsResponse && !activityVisible && gatt!=null && mtu>=64) {
+                    val requested=teamRequestedPage
+                    teamNeedsResponse=false;teamRequestedPage=null
                     resetTeamTransfer()
-                    teamPackets=if(!ok) listOf("TEAM,ERR") else if(page==null)
-                        TeamProfileWire.summary(teamSnapshot) else TeamProfileWire.page(teamSnapshot,page)
+                    teamPackets=if(!teamSnapshotLoaded) listOf("TEAM,ERR")
+                        else if(requested==null) TeamProfileWire.summary(teamSnapshot)
+                        else TeamProfileWire.page(teamSnapshot,requested)
+                } else if(teamChanged && !activityVisible && gatt!=null && mtu>=64 &&
+                    teamPackets.isEmpty() && operatorProfilePackets.isEmpty()) {
+                    teamPackets=TeamProfileWire.summary(teamSnapshot)
                 }
             }
+        }
+    }
+    private fun requestTeam(page: Int?) {
+        if (activityVisible || gatt==null || mtu<64) return
+        if (page!=null && teamPackets.isNotEmpty()) {teamDeferredPage=page;return}
+        val key=readApiKey()
+        if (key.isBlank()) {resetTeamTransfer();teamPackets=listOf("TEAM,ERR");return}
+        loadCachedTeam(key)
+        if (teamSnapshotLoaded) {
+            resetTeamTransfer()
+            teamPackets=if(page==null) TeamProfileWire.summary(teamSnapshot)
+                else TeamProfileWire.page(teamSnapshot,page)
+            maybeRefreshTeam(key)
+        } else {
+            teamNeedsResponse=true;teamRequestedPage=page
+            maybeRefreshTeam(key)
+            if(!teamFetching) {
+                teamNeedsResponse=false
+                resetTeamTransfer();teamPackets=listOf("TEAM,ERR")
+            }
+        }
+    }
+    private val teamBackgroundRefresh = object : Runnable {
+        override fun run() {
+            if(active && !activityVisible) {
+                val key=readApiKey()
+                if(key.isNotBlank()) {loadCachedTeam(key, rereadDisk = true);maybeRefreshTeam(key)}
+            }
+            main.postDelayed(this, 60_000L)
         }
     }
     private fun onTeamMessage(message:String):Boolean {
@@ -1516,6 +1569,7 @@ class DrivingSessionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        main.postDelayed(teamBackgroundRefresh, 15_000L)
         if (Build.VERSION.SDK_INT >= 26)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
                 NotificationChannel(CHANNEL,"WDG HUD driving session",NotificationManager.IMPORTANCE_LOW))
@@ -1620,6 +1674,7 @@ class DrivingSessionService : Service() {
         stopBackgroundLookahead()
         active = false
         main.removeCallbacks(pulse)
+        main.removeCallbacks(teamBackgroundRefresh)
         abort("Session stopped")
         closePage()
         recoveringGps.stop()

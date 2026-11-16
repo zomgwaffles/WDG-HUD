@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Preferences.h>
+#include <stddef.h>
 #include <math.h>
 #include "Arduino_GFX_Library.h"
 #include "pin_config.h"
@@ -69,12 +70,77 @@ struct TeamScreenData {
   uint32_t memberCount = 0;
   uint16_t teamColor = CYAN_AP;
   bool valid = false, noTeam = false, refreshing = false, failed = false;
-  TeamMemberRow pageRows[4] = {};
+  TeamMemberRow pageRows[8] = {};
   uint16_t page = 0, pageCount = 1;
   uint8_t pageSize = 0;
   bool pageValid = false;
 } teamScreen;
 
+// G5A46: Persist only complete, validated gang summaries. Statistics can change,
+// but an API/BLE failure never erases the last valid record. One NVS blob is
+// used rather than a collection of separately-written keys.
+struct SavedGangSummary {
+  uint32_t magic = 0x57444746UL; // WDGF
+  uint16_t version = 1;
+  uint16_t bytes = sizeof(SavedGangSummary);
+  char name[97] = {};
+  int32_t rank = -1, wifi = -1, ble = -1, total = -1, credits = -1;
+  uint32_t members = 0;
+  uint16_t color = CYAN_AP;
+  uint8_t state = 0; // 1 = known gang, 2 = confirmed no gang
+  uint8_t reserved = 0;
+  uint32_t checksum = 0;
+};
+SavedGangSummary lastSavedGang;
+bool haveSavedGang = false;
+
+uint32_t gangChecksum(const SavedGangSummary& v) {
+  const auto* bytes = reinterpret_cast<const uint8_t*>(&v);
+  uint32_t hash = 2166136261UL;
+  for (size_t i = 0; i < offsetof(SavedGangSummary, checksum); ++i)
+    hash = (hash ^ bytes[i]) * 16777619UL;
+  return hash;
+}
+void saveGangSummary(bool isNoGang = false) {
+  SavedGangSummary current{};
+  current.state = isNoGang ? 2 : 1;
+  if (!isNoGang) {
+    if (!teamScreen.valid || !teamScreen.name[0]) return;
+    snprintf(current.name, sizeof(current.name), "%s", teamScreen.name);
+    current.rank=teamScreen.rank;current.wifi=teamScreen.wifi;
+    current.ble=teamScreen.ble;current.total=teamScreen.total;
+    current.credits=teamScreen.credits;current.members=teamScreen.memberCount;
+    current.color=teamScreen.teamColor;
+  }
+  current.checksum=gangChecksum(current);
+  if (haveSavedGang && memcmp(&lastSavedGang,&current,sizeof(current))==0) return;
+  Preferences prefs;
+  if (!prefs.begin("wdghud",false)) return;
+  bool saved=prefs.putBytes("gangSummary",&current,sizeof(current))==sizeof(current);
+  prefs.end();
+  if (saved) {lastSavedGang=current;haveSavedGang=true;}
+}
+void loadGangSummary() {
+  Preferences prefs;
+  if (!prefs.begin("wdghud",true)) return;
+  SavedGangSummary restored{};
+  const bool lengthOk=prefs.getBytesLength("gangSummary")==sizeof(restored);
+  const bool readOk=lengthOk && prefs.getBytes("gangSummary",&restored,sizeof(restored))==sizeof(restored);
+  prefs.end();
+  if (!readOk || restored.magic!=0x57444746UL || restored.version!=1 ||
+      restored.bytes!=sizeof(restored) || restored.checksum!=gangChecksum(restored) ||
+      (restored.state!=1 && restored.state!=2) ||
+      restored.members>5000 || restored.rank < -1 || restored.rank>999999 ||
+      !memchr(restored.name,'\0',sizeof(restored.name)) ||
+      (restored.state==1 && restored.name[0]=='\0')) return;
+  lastSavedGang=restored;haveSavedGang=true;
+  if (restored.state==2) {teamScreen.noTeam=true;return;}
+  snprintf(teamScreen.name,sizeof(teamScreen.name),"%s",restored.name);
+  teamScreen.rank=restored.rank;teamScreen.wifi=restored.wifi;
+  teamScreen.ble=restored.ble;teamScreen.total=restored.total;
+  teamScreen.credits=restored.credits;teamScreen.memberCount=restored.members;
+  teamScreen.teamColor=restored.color;teamScreen.valid=true;
+}
 
 // The watch never reads account credentials or makes network requests itself.
 void formatOperatorCount(uint32_t value, char (&out)[20]) {
@@ -207,6 +273,7 @@ void initializeDisplay() {
   loadBrightness();
   loadStaleInterval();
   loadVisualizerPreferences();
+  loadGangSummary();
 }
 
 void drawHeader(const char *subtitle) {
@@ -1424,66 +1491,86 @@ static void teamNameAt(int y) {
   }
 }
 static void drawTeamScreen() {
-  teamHeader("TEAM");
+  teamHeader("GANG");
   if(teamScreen.noTeam) {
     gfx->setTextColor(YELLOW_AP);gfx->setTextSize(2);
-    gfx->setCursor(112,207);gfx->print("NO TEAM FOUND");
+    gfx->setCursor(112,207);gfx->print("NO GANG FOUND");
   } else if(!teamScreen.valid) {
     gfx->setTextColor(GREY);gfx->setTextSize(2);
-    gfx->setCursor(112,207);
-    gfx->print(teamScreen.failed?"TEAM UNAVAILABLE":"LOADING TEAM...");
+    const char* message=teamScreen.failed?"GANG UNAVAILABLE":"NO CACHED GANG";
+    gfx->setCursor((410-(int)strlen(message)*12)/2,207);gfx->print(message);
   } else {
-    teamNameAt(87);
-    const struct {const char* name;int32_t val;} stats[] = {
-      {"TEAM RANK",teamScreen.rank},
-      {"MEMBERS",(int32_t)teamScreen.memberCount},
-      {"WI-FI",teamScreen.wifi},{"BLE",teamScreen.ble},
-      {"TOTAL",teamScreen.total},{"CREDITS",teamScreen.credits}
+    teamNameAt(78);
+    // Rank and member count sit directly below the gang name, including
+    // names that wrap onto two lines. All lower content is statistics only.
+    const size_t len=strlen(teamScreen.name);
+    const int nameChars=len>26?54:27;
+    const int rankY=len>(size_t)nameChars?124:105;
+    const int membersY=rankY+27;
+    const struct {const char* label;int32_t value;int y;} identity[] = {
+      {"RANK:",teamScreen.rank,rankY},
+      {"MEMBERS:",(int32_t)teamScreen.memberCount,membersY}
     };
-    for(int i=0;i<6;++i) {
-      const int y=163+i*42;
-      char value[20];teamNumber(stats[i].val,value);
+    for(const auto &item:identity) {
+      char number[20];teamNumber(item.value,number);
       gfx->setTextSize(2);gfx->setTextColor(WHITE);
-      gfx->setCursor(49,y);gfx->print(stats[i].name);
-      gfx->setTextColor(i==0?YELLOW_AP:CYAN_AP);
-      gfx->setCursor(370-(int)strlen(value)*12,y);gfx->print(value);
+      gfx->setCursor(100,item.y);gfx->print(item.label);
+      gfx->setTextColor(item.label[0]=='R'?YELLOW_AP:CYAN_AP);
+      gfx->setCursor(262-(int)strlen(number)*12,item.y);gfx->print(number);
+    }
+    gfx->fillRect(48,188,314,2,CYAN_AP);
+    const struct {const char* label;int32_t value;int y;} stats[] = {
+      {"WI-FI",teamScreen.wifi,213},{"BLE",teamScreen.ble,255},
+      {"TOTAL",teamScreen.total,297},{"CREDITS",teamScreen.credits,339}
+    };
+    for(const auto &item:stats) {
+      char number[20];teamNumber(item.value,number);
+      gfx->setTextSize(2);gfx->setTextColor(WHITE);
+      gfx->setCursor(100,item.y);gfx->print(item.label);
+      gfx->setTextColor(CYAN_AP);
+      gfx->setCursor(324-(int)strlen(number)*12,item.y);gfx->print(number);
     }
   }
   gfx->setTextSize(2);gfx->setTextColor(CYAN_AP);
   gfx->setCursor(48,444);gfx->print("< BACK");
-  if(teamScreen.valid) {gfx->setCursor(241,444);gfx->print("MEMBERS >");}
   drawSecondaryCircuitFrame();drawOperatorClock();drawOperatorBattery();
 }
 static void drawMembersScreen() {
   teamHeader("MEMBERS");
-  if(teamScreen.valid)teamNameAt(71);
+  if(teamScreen.valid) {
+    teamNameAt(65);
+    char rankText[20];teamNumber(teamScreen.rank,rankText);
+    gfx->setTextSize(2);gfx->setTextColor(YELLOW_AP);
+    char line[34];snprintf(line,sizeof(line),"RANK: %s",rankText);
+    gfx->setCursor((410-(int)strlen(line)*12)/2,119);gfx->print(line);
+  }
   if(!teamScreen.pageValid || !activeNavigation ||
      activeNavigation->membersPage != teamScreen.page) {
-    gfx->setTextSize(2);gfx->setTextColor(GREY);
-    gfx->setCursor(103,220);gfx->print("LOADING MEMBERS");
+    gfx->setTextSize(2);gfx->setTextColor(teamScreen.failed ? YELLOW_AP : GREY);
+    const char* message=teamScreen.failed?"MEMBERS UNAVAILABLE":"LOADING MEMBERS";
+    gfx->setCursor((410-(int)strlen(message)*12)/2,250);gfx->print(message);
   } else {
     const char* roleName[]={"MEMBER","OFFICER","OWNER"};
-    for(int i=0;i<teamScreen.pageSize && i<4;++i) {
+    // Eight readable rows, 34px pitch. Last AP line ends at y~406;
+    // the bottom controls start at y=444, inside the rounded-display safe area.
+    for(int i=0;i<teamScreen.pageSize && i<8;++i) {
       const TeamMemberRow& member=teamScreen.pageRows[i];
-      // G5A45.3: compact four-member list; 54px pitch instead of 72px.
-      // Keep original font sizes, member count, AP/role fields and footer.
-      const int y=150+i*54;
+      const int y=145+i*34;
       gfx->setTextSize(2);gfx->setTextColor(WHITE);
       gfx->setCursor(54,y);gfx->print(member.username);
       gfx->setTextSize(1);gfx->setTextColor(YELLOW_AP);
-      gfx->setCursor(54,y+22);gfx->print(roleName[member.role<=2?member.role:0]);
+      gfx->setCursor(54,y+19);gfx->print(roleName[member.role<=2?member.role:0]);
       char count[20];teamNumber(member.total,count);
       gfx->setTextColor(CYAN_AP);
-      gfx->setCursor(270,y+22);gfx->print("AP ");gfx->print(count);
+      gfx->setCursor(270,y+19);gfx->print("AP ");gfx->print(count);
     }
   }
-  // Visible, tappable pagination; left/right swipes remain supported.
   gfx->setTextSize(2);gfx->setTextColor(CYAN_AP);
   gfx->setCursor(48,444);gfx->print("< TEAM");
   const uint16_t requestedPage = activeNavigation ?
       activeNavigation->membersPage : teamScreen.page;
   if (requestedPage > 0) {gfx->setCursor(175,444);gfx->print("<");}
-  if (static_cast<uint32_t>(requestedPage) + 1 < teamRosterPageCount()) {
+  if (static_cast<uint32_t>(requestedPage) + 1 < static_cast<uint32_t>(teamRosterPageCount())) {
     gfx->setCursor(347,444);gfx->print(">");
   }
   char page[32];snprintf(page,sizeof(page),"PAGE %u/%u",
@@ -1511,29 +1598,31 @@ void setTeamSummary(const char* name,int32_t rank,uint32_t count,
   teamScreen.teamColor=teamColor;
   teamScreen.valid=true;teamScreen.noTeam=false;teamScreen.failed=false;
   teamScreen.refreshing=false;teamScreen.pageValid=false;
+  saveGangSummary(); // Only writes if the complete snapshot actually changed.
   if(activeNavigation && activeNavigation->screen==SCREEN_TEAM)drawTeamScreen();
 }
 void setTeamRosterPage(uint16_t page,uint16_t pages,const TeamMemberRow* rows,uint8_t count) {
   teamScreen.page=page;teamScreen.pageCount=pages?pages:1;
-  teamScreen.pageSize=count>4?4:count;
-  for(int i=0;i<4;++i)teamScreen.pageRows[i]= i<count?rows[i]:TeamMemberRow{};
+  teamScreen.pageSize=count>8?8:count;
+  for(int i=0;i<8;++i)teamScreen.pageRows[i]= i<count?rows[i]:TeamMemberRow{};
   teamScreen.pageValid=true;
   if(activeNavigation && activeNavigation->screen==SCREEN_MEMBERS &&
      activeNavigation->membersPage==page)drawMembersScreen();
 }
 int teamRosterPageCount() {
   if (!teamScreen.valid) return 1;
-  // 5,000 member application safety limit -> 1,250 pages maximum.
-  return max(1, static_cast<int>((teamScreen.memberCount + 3) / 4));
+  // 5,000 API member limit -> at most 625 pages with eight entries each.
+  return max(1, static_cast<int>((teamScreen.memberCount + 7) / 8));
 }
 bool teamDataAvailable() {return teamScreen.valid;}
 void setTeamNoTeam() {
   teamScreen=TeamScreenData{};teamScreen.noTeam=true;
-  if(activeNavigation && (activeNavigation->screen==SCREEN_TEAM || activeNavigation->screen==SCREEN_MEMBERS))showScreen(*activeNavigation);
+  saveGangSummary(true); // Only a confirmed 404 clears a previously known gang.
+  if(activeNavigation && activeNavigation->screen==SCREEN_TEAM)drawTeamScreen();
 }
 void setTeamFetchFailed() {
   teamScreen.refreshing=false;teamScreen.failed=true;
-  if(activeNavigation && (activeNavigation->screen==SCREEN_TEAM || activeNavigation->screen==SCREEN_MEMBERS))showScreen(*activeNavigation);
+  if(activeNavigation && activeNavigation->screen==SCREEN_TEAM)drawTeamScreen();
 }
 
 // G5A28: separate SETTINGS screen. OPERATOR screen code and its exact
@@ -1771,20 +1860,11 @@ void showScreen(const Navigation& navigation) {
   // Only a real transition INTO OPERATOR requests a new account snapshot.
   // Repainting for a clock tick or a BLE result does not request again.
   static ScreenMode previousScreen = SCREEN_3X3;
-  static int previousRosterPage = -1;
   const bool justOpenedTeam = navigation.screen==SCREEN_TEAM && previousScreen!=SCREEN_TEAM;
-  const bool openedRosterPage = navigation.screen==SCREEN_MEMBERS &&
-      (previousScreen!=SCREEN_MEMBERS || previousRosterPage!=(int)navigation.membersPage);
-  if (navigation.screen == SCREEN_MEMBERS) previousRosterPage = navigation.membersPage;
   const bool justOpenedOperator = navigation.screen == SCREEN_CARD && previousScreen != SCREEN_CARD;
   previousScreen = navigation.screen;
   activeNavigation = &navigation;
   if (justOpenedTeam) { teamScreen.refreshing = true; requestTeamSummary(); }
-  if (openedRosterPage) {
-    teamScreen.pageValid = false;
-    teamScreen.page = navigation.membersPage;
-    requestTeamRoster(navigation.membersPage);
-  }
   if (justOpenedOperator) {
     operatorProfile.refreshing = true;
     operatorProfile.failed = false;
@@ -1809,9 +1889,6 @@ void showScreen(const Navigation& navigation) {
       break;
     case SCREEN_TEAM:
       drawTeamScreen();
-      break;
-    case SCREEN_MEMBERS:
-      drawMembersScreen();
       break;
 
     case SCREEN_DETAIL:
