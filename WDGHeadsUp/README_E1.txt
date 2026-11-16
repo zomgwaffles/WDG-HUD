@@ -1,0 +1,1 @@
+E1 diagnostic build. Flash this full project. Boot: 3x3, nine grey borders, 0 AP totals, blue E1 // 3X3 header marker, blue center tile with yellow L1:123. Touch is temporarily disabled. BLE remains enabled; syncing Android replaces the hardcoded center label with live data. This is NOT final production firmware.
