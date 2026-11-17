@@ -94,7 +94,6 @@ class MainActivity : ComponentActivity() {
     // Interior query points for /api/cell-detail, in 3x3 display order.
     // Territory anchors are kept separate for gang ownership and grid geometry.
     private var lastGridCoordinates = emptyList<Pair<Double, Double>>()
-    private var nineLevelResult by mutableStateOf("Nine-sector AP levels not tested yet")
 
     private val profileCardUrl = "https://wdgwars.pl/card/5029-V4AZHYWQ.svg"
 
@@ -229,11 +228,11 @@ class MainActivity : ComponentActivity() {
                 prefetchFiveByFive()
             }
             val atomicTransfer = e3Phase == "begin" || e3Phase == "cells" ||
-                e3Phase == "levels" || e3Phase == "end"
+                    e3Phase == "levels" || e3Phase == "end"
             val canCenter = activityHasFocusForBle && ready && geoCacheSupported &&
-                !writePending && viewportPackets.isEmpty() &&
-                !cellAwaitingAck && !levelAwaitingAck &&
-                !geoPackets.waitingForAck
+                    !writePending && viewportPackets.isEmpty() &&
+                    !cellAwaitingAck && !levelAwaitingAck &&
+                    !geoPackets.waitingForAck
             val idleBle = canCenter && !atomicTransfer
             val center = desiredWatchCenter
             if (canCenter && center != null && center != lastAcknowledgedCenter &&
@@ -298,7 +297,7 @@ class MainActivity : ComponentActivity() {
         prefetchTargetCenter = center
         nextPrefetchRetryAtMs = clock + 30_000L // bounded retry after an unsuccessful run
         Log.i("WDGHUD_PREFETCH", "G5A40 CACHE_PLAN center=$center fresh=${existing.size}/25 missing=${needed.size} " +
-            "visibleMissing=${needed.count { it in WdgWarsGrid.window(center, 1) }}")
+                "visibleMissing=${needed.count { it in WdgWarsGrid.window(center, 1) }}")
         fiveByFivePrefetch.start(center, existing, onComplete = { results ->
             if (activityHasFocusForBle) {
                 results.forEach { (id, record) ->
@@ -431,7 +430,7 @@ class MainActivity : ComponentActivity() {
         val fix = latestLocation ?: return false
         val age = (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1000000L
         return ready && gpsActive && age in 0..30000L && !apiLoading &&
-            !levelFetchPending && !scanAnnouncePending && e3Phase == "idle" && cellPackets.isEmpty() && levelPackets.isEmpty()
+                !levelFetchPending && !scanAnnouncePending && e3Phase == "idle" && cellPackets.isEmpty() && levelPackets.isEmpty()
     }
     private fun tryAutoRefresh(reason: String): Boolean {
         val now = android.os.SystemClock.elapsedRealtime()
@@ -449,7 +448,7 @@ class MainActivity : ComponentActivity() {
             val now = android.os.SystemClock.elapsedRealtime()
             val fix = latestLocation
             val validFix = fix != null &&
-                (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1000000L in 0..30000L
+                    (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1000000L in 0..30000L
             if (validFix && fix != null) {
                 // Use the same canonical global sector ID as the background service.
                 // A busy transfer never commits a new sector, so movement is retried.
@@ -515,9 +514,9 @@ class MainActivity : ComponentActivity() {
             if (!progressActive) return
             val now = android.os.SystemClock.elapsedRealtime()
             val safeToWrite = viewportPackets.isEmpty() && ready && !writePending && !cellAwaitingAck &&
-                !levelAwaitingAck && awaitingCenter == null &&
-                (desiredWatchCenter == lastAcknowledgedCenter || !geoCacheSupported) &&
-                e3Phase != "begin" && e3Phase != "end"
+                    !levelAwaitingAck && awaitingCenter == null &&
+                    (desiredWatchCenter == lastAcknowledgedCenter || !geoCacheSupported) &&
+                    e3Phase != "begin" && e3Phase != "end"
             if (safeToWrite && progressTarget != progressLastSent &&
                 now - progressLastSendMs >= 350L && writeCommand("PROG,$progressTarget")) {
                 progressLastSent = progressTarget
@@ -583,9 +582,9 @@ class MainActivity : ComponentActivity() {
                     val packet = if (e3Phase == "begin") {
                         val center = pendingGridCenter
                         "BEGIN,$e3ExpectedLevels,$e5ExpectedRaw" +
-                            (if (geoCacheSupported && center != null)
-                                ",1,${center.north},${center.east}"
-                            else if (watchFullSectorNamesSupported) ",1" else "")
+                                (if (geoCacheSupported && center != null)
+                                    ",1,${center.north},${center.east}"
+                                else if (watchFullSectorNamesSupported) ",1" else "")
                     } else "END"
                     if (writeCommand(packet)) {
                         e3Deadline = android.os.SystemClock.elapsedRealtime() + 5000L
@@ -751,7 +750,7 @@ class MainActivity : ComponentActivity() {
                 geoPackets.retainWindow(WdgWarsGrid.window(desiredWatchCenter!!, 2))
                 warmWatchCachePending = true
                 Log.i("WDGHUD_GEO", "G5A40 GPS_SECTOR=$desiredWatchCenter previous=$previousCenter " +
-                    "WATCH_ACK=$lastAcknowledgedCenter")
+                        "WATCH_ACK=$lastAcknowledgedCenter")
                 // GPS/CENTER stays independent: historical disk reads happen on
                 // a subsequent task, not inside the GPS-to-sector calculation.
                 cellHandler.post {
@@ -763,7 +762,7 @@ class MainActivity : ComponentActivity() {
             }
             val speedMph = if (location.hasSpeed()) location.speed * 2.2369363 else 0.0
             val movingBearing = location.hasBearing() && location.hasSpeed() &&
-                location.speed >= 0.9f
+                    location.speed >= 0.9f
             if (movingBearing) lastReliableBearing = location.bearing
             val bearing = if (movingBearing) {
                 "%.0f°".format(Locale.US, location.bearing)
@@ -802,13 +801,13 @@ class MainActivity : ComponentActivity() {
     private val linkHealth = BleLinkHealth()
     private var bleHealthText by mutableStateOf("OFFLINE")
     private fun idleForHeartbeat(): Boolean = activityHasFocusForBle && ready &&
-        watchGatt != null && !writePending && watchCapsState != "UNKNOWN" &&
-        watchCapsState != "PROBING" && e3Phase == "idle" &&
-        !cellAwaitingAck && !levelAwaitingAck && !scanAnnouncePending &&
-        viewportPackets.isEmpty() && !viewportAwaitingAck &&
-        !geoPackets.active && !geoPackets.waitingForAck &&
-        awaitingCenter == null && operatorProfilePackets.isEmpty() &&
-        operatorProfileAwaiting == null
+            watchGatt != null && !writePending && watchCapsState != "UNKNOWN" &&
+            watchCapsState != "PROBING" && e3Phase == "idle" &&
+            !cellAwaitingAck && !levelAwaitingAck && !scanAnnouncePending &&
+            viewportPackets.isEmpty() && !viewportAwaitingAck &&
+            !geoPackets.active && !geoPackets.waitingForAck &&
+            awaitingCenter == null && operatorProfilePackets.isEmpty() &&
+            operatorProfileAwaiting == null
 
     private val reconnectHandler = Handler(Looper.getMainLooper())
     private val reconnectTick = object : Runnable {
@@ -816,7 +815,7 @@ class MainActivity : ComponentActivity() {
             val clock = android.os.SystemClock.elapsedRealtime()
             val hasPermissions = if (Build.VERSION.SDK_INT >= 31) {
                 checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
-                    checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                        checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
             } else true
             if (activityHasFocusForBle) {
                 val link = watchGatt
@@ -1018,8 +1017,8 @@ class MainActivity : ComponentActivity() {
                     teamNeedsResponse = false
                     teamRequestedPage = null
                     queueTeamPackets(if (!teamSnapshotLoaded) listOf("TEAM,ERR")
-                        else if (requested == null) TeamProfileWire.summary(teamSnapshot)
-                        else TeamProfileWire.page(teamSnapshot, requested))
+                    else if (requested == null) TeamProfileWire.summary(teamSnapshot)
+                    else TeamProfileWire.page(teamSnapshot, requested))
                 } else if (teamChanged && activityHasFocusForBle && ready &&
                     teamPackets.isEmpty() && operatorProfilePackets.isEmpty()) {
                     // Opportunistic idle-time delivery, even when TEAM is not open.
@@ -1037,7 +1036,7 @@ class MainActivity : ComponentActivity() {
         if (teamSnapshotLoaded) {
             // Return last-good cached data immediately; refresh is nonblocking.
             queueTeamPackets(if (page == null) TeamProfileWire.summary(teamSnapshot)
-                else TeamProfileWire.page(teamSnapshot, page))
+            else TeamProfileWire.page(teamSnapshot, page))
             maybeRefreshTeam(key)
         } else {
             // No snapshot yet: wait for the single in-flight background fetch.
@@ -1175,7 +1174,7 @@ class MainActivity : ComponentActivity() {
                 connection.setRequestProperty("X-API-Key", key)
                 connection.setRequestProperty("Accept", "application/json")
                 require(connection.responseCode == 200 &&
-                    connection.contentType.orEmpty().contains("json", ignoreCase = true)) {
+                        connection.contentType.orEmpty().contains("json", ignoreCase = true)) {
                     "HTTP ${connection.responseCode} or invalid content type"
                 }
                 val data = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
@@ -1211,7 +1210,7 @@ class MainActivity : ComponentActivity() {
                 if (activity.rank == null || activity.days == null) {
                     val card = try { ActivityRankProbe.fetchCardCached(getSharedPreferences("wdghud", MODE_PRIVATE)
                         .getString(ActivityRankProbe.CARD_URL_KEY, profileCardUrl).orEmpty()) }
-                        catch (_: Exception) { ActivityRankProbe.Activity(null, null) }
+                    catch (_: Exception) { ActivityRankProbe.Activity(null, null) }
                     activity = ActivityRankProbe.Activity(activity.rank ?: card.rank, activity.days ?: card.days)
                 }
                 ActivityRankProbe.packet(activity)?.let { profileData.add(it) }
@@ -1382,6 +1381,10 @@ class MainActivity : ComponentActivity() {
                     lastClockSyncSentAt = 0L  // new GATT session
                     sendClockIfDue()
                     latestLocation?.let { sendGpsIfReady(it) }
+                    // G5A47: start or restore the driving session only after
+                    // the watch has completed its BLE handshake. ACTION_START
+                    // does not create a second service or take Activity GATT ownership.
+                    if (activityHasFocusForBle) startDrivingSession()
                 }
             }
         }
@@ -1954,15 +1957,15 @@ class MainActivity : ComponentActivity() {
                         val top = sorted.sortedByDescending { it.second }.take(3)
                             .joinToString(" - ") { "L${it.first}:${it.second}" }
                         "SUCCESS: API key accesses cell-detail!\n" +
-                            "GPS: %.5f, %.5f\n".format(Locale.US, lat, lon) +
-                            "Total APs: ${json.optInt("total")}\n" +
-                            "Highest level: L${json.optInt("max_level")}\n" +
-                            "Top 3 by count: $top"
+                                "GPS: %.5f, %.5f\n".format(Locale.US, lat, lon) +
+                                "Total APs: ${json.optInt("total")}\n" +
+                                "Highest level: L${json.optInt("max_level")}\n" +
+                                "Top 3 by count: $top"
                     }
                 } else {
                     "HTTP $statusCode ($contentType)" +
-                        (if (redirect != null) "\nRedirect: $redirect" else "") +
-                        "\nAPI key alone did not return cell-detail JSON."
+                            (if (redirect != null) "\nRedirect: $redirect" else "") +
+                            "\nAPI key alone did not return cell-detail JSON."
                 }
                 runOnUiThread { cellDetailResult = result; cellDetailTesting = false }
             } catch (e: Exception) {
@@ -2114,7 +2117,7 @@ class MainActivity : ComponentActivity() {
                             // Both CELL totals and LVL tiers now originate from the
                             // same authenticated cell-detail response per sector.
                             cellPackets = detailedCells +
-                                (if (watchFullSectorNamesSupported) pendingSectorNames else emptyList())
+                                    (if (watchFullSectorNamesSupported) pendingSectorNames else emptyList())
                             levelPackets = packets + rawPackets
                             uplinkTotalPackets = ApUplinkProgress.countApLevelPackets(levelPackets)
                             beginScanProgress() // validated AP data; actual BLE BEGIN next
@@ -2216,161 +2219,62 @@ class MainActivity : ComponentActivity() {
 
     // The website login stays inside WebView's own cookie store. We never read
     // or copy session cookies into the app's API-key HTTP client.
+    // G5A48: the old manual AP-level tests were diagnostics, not part of normal
+    // sector synchronization. Verify the logged-in website automatically.
     private fun openWebsiteLogin() {
         val dialog = Dialog(this)
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val heading = TextView(this).apply {
-            text = "Log in to WDGWars, then tap Test logged-in AP levels below."
+            text = "Log in to WDGWars. Your login will be used automatically for sector updates."
             setPadding(20, 16, 20, 16)
         }
         layout.addView(heading)
         val browser = WebView(this)
-        browser.settings.javaScriptEnabled = true // Required by the WDGWars website and fetch test.
+        browser.settings.javaScriptEnabled = true // Required by WDGWars and authenticated sector fetching.
         browser.settings.domStorageEnabled = true
+        CookieManager.getInstance().setAcceptCookie(true)
+        browser.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun verified() {
+                runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
+                    websiteLoginVerified = true
+                    getPreferences(Context.MODE_PRIVATE).edit()
+                        .putBoolean("website_login_verified", true).apply()
+                    Log.i(TAG, "G5A48 Website login verified automatically")
+                }
+            }
+        }, "WDGHudLogin")
         browser.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val host = request.url.host ?: return true
                 // Keep the embedded browser on WDGWars domains only.
                 return !(host == "wdgwars.pl" || host.endsWith(".wdgwars.pl"))
             }
-        }
-        CookieManager.getInstance().setAcceptCookie(true)
-        browser.addJavascriptInterface(object {
-            @JavascriptInterface
-            fun report(json: String) {
-                runOnUiThread {
+
+            override fun onPageFinished(view: WebView, url: String) {
+                val host = android.net.Uri.parse(url).host ?: return
+                if (host != "wdgwars.pl" && !host.endsWith(".wdgwars.pl")) return
+                // Reuse the authenticated endpoint formerly used by the manual
+                // login test. A failed/unauthenticated request changes nothing.
+                val location = latestLocation ?: return
+                val path = String.format(Locale.US,
+                    "/api/cell-detail?lat=%.8f&lng=%.8f", location.latitude, location.longitude)
+                val js = """(async function() {
                     try {
-                        val response = JSONObject(json)
-                        if (response.optString("kind") == "nineLevels") {
-                            val results = response.optJSONArray("results")
-                            val lines = StringBuilder()
-                            var successful = 0
-                            if (results != null) for (i in 0 until results.length()) {
-                                val item = results.optJSONObject(i) ?: continue
-                                val index = item.optInt("index", i)
-                                val levels = item.optJSONArray("levels")
-                                if (levels != null) {
-                                    successful++
-                                    val top = (0 until levels.length()).mapNotNull { j ->
-                                        levels.optJSONObject(j)?.let {
-                                            "L${it.optInt("lvl")}:${it.optInt("c")}"
-                                        }
-                                    }.joinToString(" - ")
-                                    lines.append("Sector ${index + 1}: ${item.optInt("total")} APs | $top\\n")
-                                } else {
-                                    lines.append("Sector ${index + 1}: ${item.optString("error", "Failed")}\\n")
-                                }
-                            }
-                            nineLevelResult = "$successful/9 sector level responses successful\\n$lines"
-                            return@runOnUiThread
-                        }
-                        val data = response.optJSONObject("data")
-                        if (response.optInt("status") == 200 && data?.optBoolean("ok") == true) {
-                            val levels = data.optJSONArray("levels")
-                            val sorted = mutableListOf<Pair<Int, Int>>()
-                            if (levels != null) for (i in 0 until levels.length()) {
-                                val level = levels.optJSONObject(i) ?: continue
-                                sorted.add(level.optInt("lvl") to level.optInt("c"))
-                            }
-                            val top = sorted.sortedByDescending { it.second }.take(3)
-                                .joinToString(" - ") { "L${it.first}:${it.second}" }
-                            websiteLoginVerified = true
-                            getPreferences(Context.MODE_PRIVATE).edit().putBoolean("website_login_verified", true).apply()
-                            cellDetailResult = "SUCCESS: Website login works!\n" +
-                                "Total APs: ${data.optInt("total")}\nTop 3: $top"
-                        } else {
-                            cellDetailResult = "Website login test failed: HTTP ${response.optInt("status", -1)}\n" +
-                                response.optString("error", "No valid cell JSON") + "\n" +
-                                response.optString("url", "")
-                        }
-                    } catch (e: Exception) {
-                        cellDetailResult = "Website test error: ${e.javaClass.simpleName}: ${e.message}"
-                    }
-                }
+                        const response = await fetch(${JSONObject.quote(path)}, {
+                            credentials: 'same-origin', headers: {'Accept': 'application/json'}
+                        });
+                        if (!response.ok || !(response.headers.get('content-type') || '').includes('json')) return;
+                        const data = await response.json();
+                        if (data && data.ok === true && Array.isArray(data.levels)) WDGHudLogin.verified();
+                    } catch (_) { /* Website session not yet authenticated; keep login open. */ }
+                })();""".trimIndent()
+                view.evaluateJavascript(js, null)
             }
-        }, "WDGHudResult")
+        }
         layout.addView(browser, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        val test = AndroidButton(this).apply { text = "Test logged-in AP levels" }
-        test.setOnClickListener {
-            val loc = latestLocation
-            if (loc == null) {
-                cellDetailResult = "Start GPS and wait for a fix before testing."
-                return@setOnClickListener
-            }
-            if (browser.url?.let { android.net.Uri.parse(it).host }?.let {
-                    it == "wdgwars.pl" || it.endsWith(".wdgwars.pl") } != true) {
-                cellDetailResult = "Navigate to WDGWars before testing."
-                return@setOnClickListener
-            }
-            cellDetailResult = "Testing cell detail using WDGWars website login..."
-            val path = String.format(Locale.US,
-                "/api/cell-detail?lat=%.8f&lng=%.8f", loc.latitude, loc.longitude)
-            val js = """(async function() {
-                try {
-                    const r = await fetch(${JSONObject.quote(path)}, {
-                        credentials: 'same-origin', headers: {'Accept': 'application/json'}
-                    });
-                    const type = r.headers.get('content-type') || '';
-                    if (!r.ok || !type.includes('json')) {
-                        WDGHudResult.report(JSON.stringify({status:r.status, type:type, url:r.url, error:'Not authenticated or JSON unavailable'}));
-                        return;
-                    }
-                    const data = await r.json();
-                    WDGHudResult.report(JSON.stringify({status:r.status, data:data}));
-                } catch (e) { WDGHudResult.report(JSON.stringify({error:String(e)})); }
-            })();""".trimIndent()
-            browser.evaluateJavascript(js, null)
-        }
-        layout.addView(test)
-        val testNine = AndroidButton(this).apply { text = "Test AP levels for all 9 sectors" }
-        testNine.setOnClickListener {
-            val coordinates = lastGridCoordinates
-            if (coordinates.size != 9) {
-                nineLevelResult = "Fetch the live 3x3 territory grid first (all 9 sectors)."
-                return@setOnClickListener
-            }
-            if (browser.url?.let { android.net.Uri.parse(it).host }?.let {
-                    it == "wdgwars.pl" || it.endsWith(".wdgwars.pl") } != true) {
-                nineLevelResult = "Open WDGWars in this login window first."
-                return@setOnClickListener
-            }
-            nineLevelResult = "Fetching AP levels for 9 sectors using website login..."
-            val locations = org.json.JSONArray()
-            coordinates.forEach { (lat, lon) ->
-                locations.put(org.json.JSONArray().put(lat).put(lon))
-            }
-            val js = """(async function() {
-                const locations = $locations;
-                const results = [];
-                for (let i = 0; i < locations.length; i++) {
-                    const [lat, lng] = locations[i];
-                    try {
-                        const path = '/api/cell-detail?lat=' + encodeURIComponent(lat) +
-                                     '&lng=' + encodeURIComponent(lng);
-                        const r = await fetch(path, {credentials:'same-origin',
-                            headers:{'Accept':'application/json'}});
-                        const type = r.headers.get('content-type') || '';
-                        if (!r.ok || !type.includes('json')) {
-                            results.push({index:i, status:r.status, error:'Login required or non-JSON response'});
-                            continue;
-                        }
-                        const data = await r.json();
-                        if (!data.ok || !Array.isArray(data.levels)) {
-                            results.push({index:i, status:r.status, error:'No levels returned'});
-                            continue;
-                        }
-                        const top = data.levels.slice().sort((a,b)=>b.c-a.c).slice(0,3);
-                        results.push({index:i, total:data.total, levels:top});
-                    } catch(e) {
-                        results.push({index:i, error:String(e)});
-                    }
-                }
-                WDGHudResult.report(JSON.stringify({kind:'nineLevels', results:results}));
-            })();""".trimIndent()
-            browser.evaluateJavascript(js, null)
-        }
-        layout.addView(testNine)
         val close = AndroidButton(this).apply { text = "Close login window" }
         close.setOnClickListener { dialog.dismiss() }
         layout.addView(close)
@@ -2576,52 +2480,52 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 if (!ok) throw IllegalStateException("API returned ok=false")
-                    // Canonical 0.02 x 0.02 sector grid; territory records supply ownership only.
-                    // Unlisted / unclaimed cells MUST still get their own cell-detail query.
-                    val centerId = WdgWarsGrid.sectorAt(gpsLat, gpsLon)
-                    val sectorIds = WdgWarsGrid.window(centerId, 1)
-                    val territoryBySector = nearby.associateBy { cell ->
-                        WdgWarsGrid.sectorAt(cell.lat, cell.lon)
+                // Canonical 0.02 x 0.02 sector grid; territory records supply ownership only.
+                // Unlisted / unclaimed cells MUST still get their own cell-detail query.
+                val centerId = WdgWarsGrid.sectorAt(gpsLat, gpsLon)
+                val sectorIds = WdgWarsGrid.window(centerId, 1)
+                val territoryBySector = nearby.associateBy { cell ->
+                    WdgWarsGrid.sectorAt(cell.lat, cell.lon)
+                }
+                val lines = StringBuilder()
+                lines.append("GPS: %.5f, %.5f\n".format(Locale.US, gpsLat, gpsLon))
+                lines.append("WDGWars sector: $centerId, step=0.02 x 0.02\n")
+                val packets = mutableListOf<String>()
+                val namePackets = mutableListOf<String>()
+                val gridCoordinates = mutableListOf<Pair<Double, Double>>()
+                var found = 0
+                for ((index, id) in sectorIds.withIndex()) {
+                    val (queryLat, queryLon) = WdgWarsGrid.queryPoint(id)
+                    val match = territoryBySector[id]
+                    gridCoordinates.add(queryLat to queryLon)
+                    val gangLabel = GangWireName.encode(match != null, match?.gangId ?: 0, match?.gangName)
+                    packets.add("CELL,$index,${match?.count ?: 0},${match?.gangId ?: 0},${match?.color ?: "-"},$gangLabel")
+                    namePackets.addAll(GangWireName.namePackets(
+                        index, match != null, match?.gangId ?: 0, match?.gangName))
+                    if (match != null) found++
+                    lines.append("DETAIL [$index] ${id}: %.7f, %.7f  owner=%s\n".format(
+                        Locale.US, queryLat, queryLon, match?.gangId?.toString() ?: "unlisted"))
+                }
+                check(gridCoordinates.size == 9 && gridCoordinates.distinct().size == 9)
+                lines.append("Territory cells matched $found/9; detail requests planned 9/9; scanned %,d worldwide".format(
+                    Locale.US, scanned))
+                Log.d("WDGHUD_API", lines.toString())
+                runOnUiThread {
+                    apiStatus = "Territory matches: $found/9; requesting detail for 9/9"
+                    apiResults = lines.toString()
+                    lastGridCoordinates = gridCoordinates.toList()
+                    val verifiedOwnership = territoryBySector.mapValues { (_, owner) ->
+                        GangWireName.encodeFull(true, owner.gangId, owner.gangName) to owner.color
                     }
-                    val lines = StringBuilder()
-                    lines.append("GPS: %.5f, %.5f\n".format(Locale.US, gpsLat, gpsLon))
-                    lines.append("WDGWars sector: $centerId, step=0.02 x 0.02\n")
-                    val packets = mutableListOf<String>()
-                    val namePackets = mutableListOf<String>()
-                    val gridCoordinates = mutableListOf<Pair<Double, Double>>()
-                    var found = 0
-                    for ((index, id) in sectorIds.withIndex()) {
-                        val (queryLat, queryLon) = WdgWarsGrid.queryPoint(id)
-                        val match = territoryBySector[id]
-                        gridCoordinates.add(queryLat to queryLon)
-                        val gangLabel = GangWireName.encode(match != null, match?.gangId ?: 0, match?.gangName)
-                        packets.add("CELL,$index,${match?.count ?: 0},${match?.gangId ?: 0},${match?.color ?: "-"},$gangLabel")
-                        namePackets.addAll(GangWireName.namePackets(
-                            index, match != null, match?.gangId ?: 0, match?.gangName))
-                        if (match != null) found++
-                        lines.append("DETAIL [$index] ${id}: %.7f, %.7f  owner=%s\n".format(
-                            Locale.US, queryLat, queryLon, match?.gangId?.toString() ?: "unlisted"))
-                    }
-                    check(gridCoordinates.size == 9 && gridCoordinates.distinct().size == 9)
-                    lines.append("Territory cells matched $found/9; detail requests planned 9/9; scanned %,d worldwide".format(
-                        Locale.US, scanned))
-                    Log.d("WDGHUD_API", lines.toString())
-                    runOnUiThread {
-                        apiStatus = "Territory matches: $found/9; requesting detail for 9/9"
-                        apiResults = lines.toString()
-                        lastGridCoordinates = gridCoordinates.toList()
-                        val verifiedOwnership = territoryBySector.mapValues { (_, owner) ->
-                            GangWireName.encodeFull(true, owner.gangId, owner.gangName) to owner.color
-                        }
-                        // Retain verified gang/color metadata across app and
-                        // driving-service ownership changes, never replace it
-                        // with UNKNOWN from a partial lookup.
-                        TerritoryCacheStore.merge(this@MainActivity, verifiedOwnership)
-                        territoryForCache = TerritoryCacheStore.load(this@MainActivity)
-                        pendingGridCenter = centerId
-                        sendLiveCells(packets)
-                        pendingSectorNames = namePackets
-                    }
+                    // Retain verified gang/color metadata across app and
+                    // driving-service ownership changes, never replace it
+                    // with UNKNOWN from a partial lookup.
+                    TerritoryCacheStore.merge(this@MainActivity, verifiedOwnership)
+                    territoryForCache = TerritoryCacheStore.load(this@MainActivity)
+                    pendingGridCenter = centerId
+                    sendLiveCells(packets)
+                    pendingSectorNames = namePackets
+                }
             } catch (e: Exception) {
                 Log.e("WDGHUD_API", "Territory grid failed", e)
                 runOnUiThread {
@@ -2639,8 +2543,8 @@ class MainActivity : ComponentActivity() {
     private fun startDrivingSession() {
         val locationGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val bluetoothGranted = Build.VERSION.SDK_INT < 31 ||
-            (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
-             checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED)
+                (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+                        checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED)
         if (!locationGranted || !bluetoothGranted) {
             status = "Grant GPS and Bluetooth permissions before starting"
             return
@@ -2780,7 +2684,7 @@ class MainActivity : ComponentActivity() {
                 window.decorView.windowInsetsController?.setSystemBarsAppearance(
                     0,
                     android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                        android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                            android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
                 )
             } else {
                 @Suppress("DEPRECATION")
@@ -2807,7 +2711,7 @@ class MainActivity : ComponentActivity() {
                 if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) startGps()
                 val bluetoothGranted = if (Build.VERSION.SDK_INT >= 31)
                     checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
-                    checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
                 else true
                 if (bluetoothGranted) startScanning(autoConnect = true)
                 else status = "Bluetooth permission required for watch discovery"
@@ -2898,14 +2802,14 @@ class MainActivity : ComponentActivity() {
                                 ready -> "LINK ESTABLISHED // WDG HUD"
                                 status.contains("Scanning", ignoreCase = true) -> "SCANNING // SEEKING WATCH"
                                 status.contains("Connecting", ignoreCase = true) ||
-                                    status.contains("Discovering", ignoreCase = true) -> "HANDSHAKE // WATCH"
+                                        status.contains("Discovering", ignoreCase = true) -> "HANDSHAKE // WATCH"
                                 else -> "LINK OFFLINE // WDG HUD"
                             }
                             val uplinkColor = when {
                                 ready -> HudGreen
                                 status.contains("Scanning", ignoreCase = true) ||
-                                    status.contains("Connecting", ignoreCase = true) ||
-                                    status.contains("Discovering", ignoreCase = true) -> HudBlue
+                                        status.contains("Connecting", ignoreCase = true) ||
+                                        status.contains("Discovering", ignoreCase = true) -> HudBlue
                                 else -> HudRed
                             }
                             Text(
@@ -2965,7 +2869,7 @@ class MainActivity : ComponentActivity() {
                             HudAction(
                                 label = if (apiLoading || levelFetchPending) "SYNCHRONIZING..." else "SYNC // 3×3 SECTOR GRID",
                                 enabled = !apiLoading && cellPackets.isEmpty() &&
-                                    levelPackets.isEmpty() && !levelFetchPending
+                                        levelPackets.isEmpty() && !levelFetchPending
                             ) {
                                 lastAutoRefreshMs = android.os.SystemClock.elapsedRealtime()
                                 fetch3x3()
