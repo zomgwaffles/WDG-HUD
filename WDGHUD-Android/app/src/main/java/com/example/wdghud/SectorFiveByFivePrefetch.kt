@@ -11,9 +11,7 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import com.example.wdghud.geometry.GridDefinition
 import com.example.wdghud.geometry.SectorApiPreloadCoordinator
-import com.example.wdghud.geometry.SectorGeometry
 import com.example.wdghud.geometry.SectorId
 import com.example.wdghud.geometry.SectorPreloadCache
 import com.example.wdghud.geometry.SectorWindowPlanner
@@ -27,22 +25,9 @@ import org.json.JSONObject
  */
 internal class SectorFiveByFivePrefetch(private val context: Context) {
     private val requiredCount = 25
-    // One canonical grid source: never give the lookahead planner an independent
-    // 0.02 x 0.02 guess while GPS uses WdgWarsGrid.sectorAt/queryPoint.
-    private val geometry = run {
-        val origin = WdgWarsGrid.queryPoint(SectorId(0, 0))
-        val north = WdgWarsGrid.queryPoint(SectorId(1, 0))
-        val east = WdgWarsGrid.queryPoint(SectorId(0, 1))
-        val northStep = north.first - origin.first
-        val eastStep = east.second - origin.second
-        require(northStep > 0.0 && eastStep > 0.0 &&
-                northStep.isFinite() && eastStep.isFinite()) {
-            "Invalid canonical WDGWars grid spacing"
-        }
-        SectorGeometry(GridDefinition(0.0, 0.0, northStep, eastStep))
-    }
+    // G5A49.4c: production prefetch uses the same canonical sector windows
+    // as GPS, cached sector navigation and WDGWars query points.
     private val staging = SectorPreloadCache(SectorWindowPlanner(
-        geometry,
         ttlMs = 30L * 60L * 1000L,
         dynamicTtlMs = { StaleIntervalSettings.ttlMs(context) }
     ), ::validDetail)

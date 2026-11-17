@@ -1,11 +1,18 @@
 package com.example.wdghud.geometry
 
-/** E5.17 G2: planning only. Never performs GPS, HTTP, storage, or BLE operations. */
+/**
+ * Planning only: no GPS, HTTP, storage, BLE or network side effects.
+ *
+ * Production defaults to the canonical WdgWarsGrid windows also used for
+ * GPS sector identification, API query points and watch recentering.
+ *
+ * An explicit SectorGeometry remains supported for independent synthetic-grid
+ * unit tests; no source or persisted sector-ID format is changed.
+ */
 class SectorWindowPlanner(
-    private val geometry: SectorGeometry,
+    private val geometry: SectorGeometry? = null,
     private val ttlMs: Long = 30 * 60 * 1000L,
-    // Optional dynamic AP freshness age. Used by the live foreground prefetch
-    // planner; geometry math and the permanent sector anchors are unaffected.
+    // Optional dynamic AP freshness age, controlled by the watch setting.
     private val dynamicTtlMs: (() -> Long)? = null
 ) {
     init { require(ttlMs > 0) }
@@ -29,6 +36,9 @@ class SectorWindowPlanner(
         val missingVisible: List<SectorId> get() = visible.filter { it !in reusable }
     }
 
+    private fun window(center: SectorId, radius: Int): List<SectorId> =
+        geometry?.window(center, radius) ?: WdgWarsGrid.window(center, radius)
+
     fun plan(
         center: SectorId,
         nowMs: Long,
@@ -36,9 +46,9 @@ class SectorWindowPlanner(
     ): Plan {
         require(nowMs >= 0)
         val effectiveTtlMs = dynamicTtlMs?.invoke()?.takeIf { it > 0L } ?: ttlMs
-        val visible = geometry.window(center, 1)
-        // A full 5x5 is required for diagonally crossing one sector.
-        val envelope = geometry.window(center, 2)
+        val visible = window(center, 1)
+        // Full 5x5 required for diagonally crossing one sector.
+        val envelope = window(center, 2)
         val reusable = envelope.filter { id ->
             val entry = cached[id]
             entry != null && entry.valid && entry.fetchedAtMs in 0..nowMs &&
