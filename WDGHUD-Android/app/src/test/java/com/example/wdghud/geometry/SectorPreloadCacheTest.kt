@@ -59,12 +59,24 @@ class SectorPreloadCacheTest {
         assertFalse(center in cache.outstanding(center, now))
     }
 
+    @Test fun fifteenMinuteOldRecordsRemainFreshUnderThirtyMinuteDefault() {
+        val cache = cache()
+        val fresh = now - 15L * 60 * 1000L
+        geometry.window(center, 2).forEach { assertTrue(cache.accept(it, "VALID:fresh", fresh)) }
+        assertTrue(cache.outstanding(center, now).isEmpty())
+        assertEquals(9, cache.visibleSnapshot(center, now)!!.size)
+    }
+
     @Test fun expiredRecordsAreNotUsedAsVisibleData() {
         val cache = cache()
-        val old = now - 15L * 60 * 1000L
-        geometry.window(center, 2).forEach { cache.accept(it, "VALID:old", old) }
-        assertEquals(25, cache.outstanding(center, now).size)
-        assertNull(cache.visibleSnapshot(center, now))
+        // Use a clock beyond the 30-minute default TTL so the timestamp is valid.
+        val referenceNow = 2_000_000L
+        val expired = referenceNow - 30L * 60 * 1000L
+        geometry.window(center, 2).forEach { assertTrue(cache.accept(it, "VALID:old", expired)) }
+        assertEquals(25, cache.outstanding(center, referenceNow).size)
+        assertNull(cache.visibleSnapshot(center, referenceNow))
+        // Expiration makes records ineligible for reuse; it must not erase history.
+        assertEquals(25, cache.export().size)
     }
 
     @Test fun defensiveCopyCannotMutateCache() {

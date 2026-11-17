@@ -95,7 +95,63 @@ class MainActivity : ComponentActivity() {
     // Territory anchors are kept separate for gang ownership and grid geometry.
     private var lastGridCoordinates = emptyList<Pair<Double, Double>>()
 
-    private val profileCardUrl = "https://wdgwars.pl/card/5029-V4AZHYWQ.svg"
+    // G5A49: Account-specific public card URLs are optional, never hardcoded.
+    private val profileCardPattern = Regex("^https://wdgwars\\.pl/card/[A-Za-z0-9_-]{1,100}\\.svg$")
+    private var profileCardUrl by mutableStateOf("")
+    private var profileCardInput by mutableStateOf("")
+    private var profileCardError by mutableStateOf(false)
+
+    private fun validProfileCardUrl(url: String): Boolean =
+        profileCardPattern.matches(url)
+
+    private fun profileCardPreferenceKey(key: String): String {
+        if (key.isBlank()) return ""
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(key.trim().toByteArray(Charsets.UTF_8))
+        val accountId = digest.take(16).joinToString("") {
+            "%02x".format(Locale.US, it.toInt() and 0xff)
+        }
+        return "${ActivityRankProbe.CARD_URL_KEY}_$accountId"
+    }
+
+    private fun savedProfileCard(key: String): String {
+        val prefKey = profileCardPreferenceKey(key)
+        if (prefKey.isEmpty()) return ""
+        val url = getSharedPreferences("wdghud", Context.MODE_PRIVATE)
+            .getString(prefKey, "").orEmpty()
+        return url.takeIf(::validProfileCardUrl).orEmpty()
+    }
+
+    private fun loadProfileCardForAccount(key: String) {
+        profileCardUrl = savedProfileCard(key)
+        profileCardInput = profileCardUrl
+        profileCardError = false
+    }
+
+    private fun saveProfileCard() {
+        val value = profileCardInput.trim()
+        val prefKey = profileCardPreferenceKey(apiKey)
+        if (prefKey.isEmpty() || !validProfileCardUrl(value)) {
+            profileCardError = true
+            return
+        }
+        getSharedPreferences("wdghud", Context.MODE_PRIVATE).edit()
+            .putString(prefKey, value).apply()
+        profileCardUrl = value
+        profileCardInput = value
+        profileCardError = false
+    }
+
+    private fun clearProfileCard() {
+        val prefKey = profileCardPreferenceKey(apiKey)
+        if (prefKey.isNotEmpty()) {
+            getSharedPreferences("wdghud", Context.MODE_PRIVATE).edit()
+                .remove(prefKey).apply()
+        }
+        profileCardUrl = ""
+        profileCardInput = ""
+        profileCardError = false
+    }
 
     private val bluetoothAdapter by lazy {
         (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
@@ -1208,10 +1264,13 @@ class MainActivity : ComponentActivity() {
                 // Never fabricate the value when the public SVG is unreadable.
                 var activity = ActivityRankProbe.fromProfile(data)
                 if (activity.rank == null || activity.days == null) {
-                    val card = try { ActivityRankProbe.fetchCardCached(getSharedPreferences("wdghud", MODE_PRIVATE)
-                        .getString(ActivityRankProbe.CARD_URL_KEY, profileCardUrl).orEmpty()) }
-                    catch (_: Exception) { ActivityRankProbe.Activity(null, null) }
-                    activity = ActivityRankProbe.Activity(activity.rank ?: card.rank, activity.days ?: card.days)
+                    val cardUrl = savedProfileCard(key)
+                    if (cardUrl.isNotEmpty()) {
+                        val card = try { ActivityRankProbe.fetchCardCached(cardUrl) }
+                        catch (_: Exception) { ActivityRankProbe.Activity(null, null) }
+                        activity = ActivityRankProbe.Activity(
+                            activity.rank ?: card.rank, activity.days ?: card.days)
+                    }
                 }
                 ActivityRankProbe.packet(activity)?.let { profileData.add(it) }
                 profileData.add("PROFILE,E") // Commit only after every chunk is ACKed.
@@ -2668,6 +2727,7 @@ class MainActivity : ComponentActivity() {
         bondReceiverRegistered = true
         websiteLoginVerified = getPreferences(Context.MODE_PRIVATE).getBoolean("website_login_verified", false)
         apiKey = restoreApiKey()
+        loadProfileCardForAccount(apiKey)
         loadSharedSectorCache()
         Log.i("WDGHUD_CACHE", "G5A42 HISTORY_TOTAL=${SectorCacheStore.count(this)} persisted AP sectors")
         territoryForCache = TerritoryCacheStore.load(this)
@@ -2775,25 +2835,27 @@ class MainActivity : ComponentActivity() {
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        if (websiteLoginVerified) {
+                        if (websiteLoginVerified && profileCardUrl.isNotEmpty()) {
                             HudPanel("OPERATOR PROFILE", "00", HudGreen) {
-                                AndroidView(
-                                    factory = { context ->
-                                        WebView(context).apply {
-                                            settings.javaScriptEnabled = false
-                                            settings.domStorageEnabled = false
-                                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                            loadDataWithBaseURL(
-                                                "https://wdgwars.pl/",
-                                                """<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;background:transparent"><img src="$profileCardUrl" style="width:100%;height:auto;display:block" alt="WDGWars profile card"></body></html>""",
-                                                "text/html", "UTF-8", null
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                        .height(220.dp)
-                                        .border(1.dp, HudBorder, RoundedCornerShape(5.dp))
-                                )
+                                key(profileCardUrl) {
+                                    AndroidView(
+                                        factory = { context ->
+                                            WebView(context).apply {
+                                                settings.javaScriptEnabled = false
+                                                settings.domStorageEnabled = false
+                                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                                loadDataWithBaseURL(
+                                                    "https://wdgwars.pl/",
+                                                    """<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;background:transparent"><img src="$profileCardUrl" style="width:100%;height:auto;display:block" alt="WDGWars profile card"></body></html>""",
+                                                    "text/html", "UTF-8", null
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                            .height(220.dp)
+                                            .border(1.dp, HudBorder, RoundedCornerShape(5.dp))
+                                    )
+                                }
                             }
                         }
 
@@ -2917,6 +2979,7 @@ class MainActivity : ComponentActivity() {
                             OutlinedTextField(
                                 value = apiKey,
                                 onValueChange = {
+                                    if (it != apiKey) loadProfileCardForAccount(it)
                                     apiKey = it
                                     persistApiKey(it)
                                     if (it.isNotBlank()) {
@@ -2952,6 +3015,44 @@ class MainActivity : ComponentActivity() {
                             )
                             Spacer(Modifier.height(12.dp))
                             HudSecondaryAction("LOGIN TO WDGWARS WEBSITE") { openWebsiteLogin() }
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                "OPTIONAL // PUBLIC PROFILE CARD",
+                                color = HudMuted,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = profileCardInput,
+                                onValueChange = {
+                                    profileCardInput = it
+                                    profileCardError = false
+                                },
+                                label = { Text("WDGWARS // PROFILE CARD URL") },
+                                placeholder = { Text("https://wdgwars.pl/card/ID-CODE.svg") },
+                                isError = profileCardError,
+                                textStyle = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    color = HudText,
+                                    fontSize = 12.sp
+                                ),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (profileCardError) {
+                                Text(
+                                    "Enter your own https://wdgwars.pl/card/...svg URL and API key.",
+                                    color = HudRed,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            HudSecondaryAction("SAVE PROFILE CARD") { saveProfileCard() }
+                            if (profileCardUrl.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                HudSecondaryAction("REMOVE PROFILE CARD") { clearProfileCard() }
+                            }
                         }
 
 
