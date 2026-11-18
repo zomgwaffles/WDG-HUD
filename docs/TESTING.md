@@ -61,6 +61,7 @@ Use the actual detected COM port if the uploader cannot find the board. Preserve
 - [ ] SETTINGS brightness and 1–240-minute stale-age choices survive watch restart.
 - [ ] WDGWars website login no longer shows retired AP-level diagnostic buttons (G5A48).
 - [ ] A saved profile card displays the chosen user's card, persists after app restart and can be removed (G5A49.1).
+- [ ] G5A50.1 privacy rules: verify the release manifest has `allowBackup=false` and correct cloud/transfer extraction rules; test an in-place app upgrade retains existing local AP history and encrypted credentials.
 
 ## Data-integrity and field scenarios
 
@@ -71,7 +72,7 @@ Use the actual detected COM port if the uploader cannot find the board. Preserve
 - [ ] API successful timestamps advance only after validated complete responses; failures do not mark data fresh.
 - [ ] Watch offline after power loss/reboot still shows last-good 3×3, OPERATOR and GANG summaries.
 - [ ] GANG data refreshes while Android is running, without a partial response overwriting the complete saved state.
-- [ ] Switching WDGWars accounts does not expose the prior user's watch-side GANG summary; **currently a known release gap**.
+- [ ] Hardware account-switch acceptance: verify A → B → A with two distinct real accounts; at each transition, assert the watch never displays the *previous* account's OPERATOR/GANG records, an interrupted PROFILE/TEAM transfer cannot commit, and a reboot during switching remains fail-closed. **G5A49.4d implements an account-scoped protocol; real two-account hardware acceptance is still pending.**
 - [ ] Sustained outdoor tests validate GPS direction slices near all eight headings and repeated BLE recovery.
 - [ ] Explicit dateline/pole and international coverage acceptance scenarios are recorded before claiming worldwide robustness.
 

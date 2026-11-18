@@ -15,9 +15,15 @@ Watch firmware requests LE Secure Connections with user-visible six-digit passke
 
 ## Data retention and account switching
 
-Validated sector history persists on the Android device, and last-good watch snapshots persist in NVS across reboot. **Known limitation:** the watch's saved GANG summary is currently not tagged by account, so it can display a prior user's summary until a complete new transfer arrives after an account switch. Do not share a watch between WDGWars accounts without understanding this limitation.
+Validated sector history persists on the Android device, and last-good watch snapshots persist in NVS across reboot. Since G5A49.4d, the phone sends a verified-username-derived `OWNER` identifier before personal BLE payloads, and the watch stores account-scoped OPERATOR and GANG records. The maintainer reported successful same-account syncing, offline reboot, and background BLE handoff on physical hardware. **A genuine A → B → A account-switch test on hardware is still pending.** Do not claim full cross-account isolation certification until that test passes.
 
-Clearing Android storage, uninstalling the app or wiping watch NVS may destroy locally cached history and stored account settings. Test data migrations intentionally, with backups if appropriate.
+Geographic sector/AP caches are deliberately separate from account-personal display records. Clearing Android storage, uninstalling the app, or wiping watch NVS may destroy local history and saved settings. Test migrations intentionally; do not erase saved state to diagnose an ordinary build problem.
+
+## Android backup and device migration
+
+Release-hardening G5A50.1 disables Android automatic cloud backup and attempts to exclude all application-private data from device-to-device transfer as well. This is deliberate: app storage includes location-related sector history, preferences, and ciphertext tied to a device-bound Android Keystore key. These files should not silently transfer to another phone. Android documents device-manufacturer differences in backup behavior; verify the merged manifest and transfer behavior on supported devices.
+
+**Tradeoff:** Automatic reinstall or phone migration will not recover locally accumulated AP history or preferences. There is no supported export/import workflow yet. Normal in-place APK updates preserve existing local app data; this patch does not delete existing data.
 
 ## Reporting security concerns
 
