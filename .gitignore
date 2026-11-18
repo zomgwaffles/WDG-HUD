@@ -1,0 +1,6 @@
+# Private Android signing material: NEVER commit or distribute these files.
+*.jks
+*.keystore
+*.p12
+*.pfx
+**/signing.properties

@@ -1,6 +1,6 @@
-# WDG // HUD — G5A50.2 Pre-v1.0 release audit
+# WDG // HUD — G5A50.3a Pre-v1.0 release audit
 
-**Source audit baseline:** GitHub `main` at `6885e6dfc994b755761e15f2781e9092d1565e85` (G5A49.4d, 2026-11-18 UTC). G5A50.1 is committed at `fc0a3e2377a53a8d75d63921d525c3d15bd241b6` (2026-11-18 UTC); G5A50.2 documentation follows that baseline.
+**Current source baseline:** GitHub `main` at `8416ce8daaf47d498d97ef08667794eec4a4864c` (G5A50.2, 2026-11-18 UTC). Source review, not a clean checkout or independently reproduced release build.
 **Scope:** Source, packaging configuration, public docs, Android backup defaults. No clean-room installation, secret-history scan, independent penetration test, or external device validation was performed as part of this source audit.
 
 ## Release decision
@@ -13,12 +13,12 @@
 | --- | --- | --- | --- |
 | Addressed | Android backup and transfer | G5A50.1 added explicit backup/transfer opt-out and maintainer reported successful build/manifest review and in-place upgrade | Retain privacy behavior in fresh-install / D2D acceptance tests |
 | Addressed in G5A50.2 package | Public license | Maintainer selected GPL-3.0-only for original WDG // HUD code | Add root `LICENSE`; retain independent upstream licensing; complete resolved/transitive dependency and distribution-notice review |
-| High | Release signing | Debug build tested; no finalized signing workflow or publicly verifiable APK/checksums | Set signing policy, protect private key, reproducible release build and hashes |
+| High | Release signing | G5A50.3a includes **local** private-key / APK signing drill and checksum scripts; full Windows run not yet reported | Run local drill, record certificate fingerprint privately, then configure and verify a distinct public signed build |
 | High | Account switching | G5A49.4d account OWNER + scoped NVS merged; real A→B→A hardware test not recorded | Exercise two-account switch including reboot during incomplete transfer; do not clear NVS to make tests pass |
 | High | New-user install | Existing phone/watch were used for most development tests | Independent fresh install/pairing/login on supported hardware, with no retained cookies, bonds or cache |
 | Medium | Documentation | Security and release checklist still describe the now-fixed unscoped GANG defect; G5A49.3 evidence outdated | Update to describe implementation versus unverified two-account hardware acceptance |
 | Medium | CI and dependency pinning | No checked-in GitHub Actions workflows; watch PlatformIO dependencies are partly floating | Pick supported CI toolchain and add repeatable builds/tests; lock dependency resolution before publishing binaries |
-| Medium | Distribution metadata | Android package is `com.example.wdghud`, `versionCode=1`, `versionName=1.0`; no releases listed | Decide permanent application ID and semver/version policy before public distribution (package rename later loses upgrade continuity) |
+| Medium | Distribution metadata | Existing debug ID `com.example.wdghud`, `versionCode=1`, `versionName=1.0`. G5A50.3a proposes separate public ID/version only | Freeze new public ID and version before first public build; preserve existing debug installation/data |
 | Medium | Repository hygiene | `.idea` IDE files and historical 21-sector protocol drafts remain tracked | Determine what belongs in release source vs historical archive; historical docs must be clearly labeled |
 | Medium | Privacy/history scan | No comprehensive Git history/signing-key/credential scan completed | Inspect *history* and binaries; sanitize any real leaked secret and rotate it rather than merely deleting the current file |
 | Medium | Geographic edge cases | 0.02-degree grid verified; polar/dateline/exact-boundary field testing not complete | Document unsupported edges; validate test vectors and GPS headings |
@@ -49,3 +49,7 @@ Unchanged: all Kotlin source, watch C++, account-scoped NVS, BLE protocol, GPS/g
 ## Reference
 
 Android's official Auto Backup documentation says cloud backup generally includes application shared preferences and private files by default; on some devices `allowBackup=false` does not block device-to-device transfer, requiring explicit extraction rules. See https://developer.android.com/identity/data/autobackup .
+
+## G5A50.3a signing/identity boundary
+
+G5A50.3a adds docs and PowerShell tooling only: `tools/release/New-ReleaseKey.ps1` and `tools/release/Build-SigningDrill.ps1`. It does **not** change Gradle, source code, APK applicationId, UI, BLE, GPS, AP cache, watch firmware or signing configuration. Never publish/install the drill artifact. See `docs/RELEASE_SIGNING.md` and `docs/RELEASE_VERSIONING.md`.
