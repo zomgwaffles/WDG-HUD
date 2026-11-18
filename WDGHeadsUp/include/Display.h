@@ -9,6 +9,9 @@ void drawBlePairingCode(uint32_t code);
 void setOperatorProfile(const char* username, const char* gang,
                         uint32_t wifi, uint32_t ble, uint32_t total, uint32_t badges);
 void operatorProfileFetchFailed();
+// Called on the Arduino main loop after a durable verified OWNER offer.
+void resetAccountPersonalDisplay();
+void restoreScopedGangAfterProfile();
 // G5A45: optional account activity rank and team/roster, independent of sector sync.
 void setOperatorActivity(const char* rank, int activeDays30);
 struct TeamMemberRow {

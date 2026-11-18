@@ -11,6 +11,7 @@
 #include <string>
 #include "BleTransport.h"
 #include "BleSecurityPolicy.h"
+#include "AccountScopedStore.h"
 #include "Display.h"
 #include "SectorModel.h"
 #include "LastGoodStore.h"
@@ -83,6 +84,10 @@ bool viewportDirty = false;
 // Separate acknowledged OPERATOR profile channel; never touches sector batches.
 struct ProfilePacket { char value[96]; };
 QueueHandle_t profileQueue = nullptr;
+// OWNER is staged only on the Arduino main loop, after authenticated BLE.
+struct OwnerPacket { char value[40] = {}; };
+QueueHandle_t ownerQueue = nullptr;
+volatile bool ownerLinkResetPending = true;
 bool profileRequestPending = false;
 volatile bool profileClientReady = false; // set after Android writes a command post-subscription
 volatile bool staleIntervalSyncPending = false;
@@ -214,6 +219,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     connected = true;
     linkAuthenticated = false;
     profileClientReady = false;
+    ownerLinkResetPending = true;
     staleIntervalSyncPending = true; // Re-send user preference on every CAPS handshake.
     viewportDisconnectPending = true; // New session; discard stale staging in pollBle().
   }
@@ -226,6 +232,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     pairingPromptPending = false;
     pairingPromptCode = 0;
     profileClientReady = false;
+    ownerLinkResetPending = true;
     viewportDisconnectPending = true;
     profileStage = ProfileStage{};
     teamStage = TeamStage{};
@@ -280,7 +287,16 @@ class CommandCallbacks : public NimBLECharacteristicCallbacks {
       staleIntervalToSync = getStaleIntervalMinutes();
       staleIntervalSyncPending = true;
       // G4B capability discovery: never mutates the legacy snapshot or GPS state.
-      response->setValue("CAPS,3,VIEW,ATOMIC,GANG,GANG96,GEO25");
+      response->setValue("CAPS,3,VIEW,ATOMIC,GANG,GANG96,GEO25,ACCOUNT1");
+    } else if (command.compare(0, 6, "OWNER,") == 0) {
+      if (command.size() != 38 || !ownerQueue) {
+        response->setValue("OWNER:INVALID");
+      } else {
+        OwnerPacket packet{};
+        memcpy(packet.value, command.c_str(), command.size() + 1);
+        if (xQueueSend(ownerQueue, &packet, 0) == pdTRUE) return;
+        response->setValue("OWNER:BUSY");
+      }
     } else if (command.compare(0, 5, "TEAM,") == 0) {
       if(command.size()>=sizeof(TeamPacket::value) || !teamQueue) {
         response->setValue("TEAM:INVALID");
@@ -575,6 +591,7 @@ void initializeBle() {
   viewportQueue = xQueueCreate(16, sizeof(ViewportCommand));
   geoQueue = xQueueCreate(16, sizeof(GeoCommand));
   profileQueue = xQueueCreate(4, sizeof(ProfilePacket));
+  ownerQueue = xQueueCreate(2, sizeof(OwnerPacket));
   teamQueue = xQueueCreate(8, sizeof(TeamPacket));
   clockQueue = xQueueCreate(1, sizeof(ClockSync));
   NimBLEDevice::init("WDG HUD");
@@ -615,6 +632,39 @@ void notifyStaleIntervalChanged(uint16_t minutes) {
 }
 
 void pollBle() {
+  // A new GATT owner must prove its account before sending personal packets.
+  // Drain old-session staging without touching the geographic cache.
+  if (ownerLinkResetPending || !connected) {
+    ownerLinkResetPending = false;
+    wdg::accountScopedStore.endSession();
+    profileStage = ProfileStage{};
+    teamStage = TeamStage{};
+    if (profileQueue) xQueueReset(profileQueue);
+    if (teamQueue) xQueueReset(teamQueue);
+    if (ownerQueue) xQueueReset(ownerQueue);
+  }
+  OwnerPacket offerPacket{};
+  if (connected && linkAuthenticated && ownerQueue &&
+      xQueueReceive(ownerQueue, &offerPacket, 0) == pdTRUE) {
+    wdg::AccountOwner offered{};
+    const char* reply = "OWNER:INVALID";
+    if (wdg::AccountOwner::fromHex(offerPacket.value + 6, offered)) {
+      bool changed = false;
+      if (wdg::accountScopedStore.offer(offered, changed)) {
+        if (changed || !wdg::accountScopedStore.confirmed()) {
+          resetAccountPersonalDisplay();
+          profileStage = ProfileStage{};
+          teamStage = TeamStage{};
+          if (profileQueue) xQueueReset(profileQueue);
+          if (teamQueue) xQueueReset(teamQueue);
+          profileRequestPending = true;
+        }
+        reply = "OWNER:OK";
+      } else reply = "OWNER:STORAGE";
+    }
+    if (response) { response->setValue(reply); response->notify(); }
+    return;
+  }
   // Publish only after a client has subscribed and completed the secure CAPS
   // handshake. One short notification; no AP packet and no GPS dependencies.
   // Re-sending after every CAPS recovers lost offline edits and reconnects.
@@ -633,7 +683,8 @@ void pollBle() {
   }
   // Request only while a phone is connected. If opened offline, the request
   // remains pending until the next successful BLE connection.
-  if (profileRequestPending && connected && profileClientReady && response &&
+  if (profileRequestPending && wdg::accountScopedStore.sessionReady() &&
+      connected && linkAuthenticated && profileClientReady && response &&
       !batchActive && !viewportTransaction.active()) {
     profileRequestPending = false;
     profileStage = ProfileStage{};
@@ -641,12 +692,14 @@ void pollBle() {
     response->notify();
   }
   // Summary requests are notifications, not fake AP sync packets.
-  if (teamSummaryRequestPending && connected && linkAuthenticated && profileClientReady &&
+  if (teamSummaryRequestPending && wdg::accountScopedStore.sessionReady() &&
+      wdg::accountScopedStore.confirmed() && connected && linkAuthenticated && profileClientReady &&
       response && !batchActive && !viewportTransaction.active()) {
     teamSummaryRequestPending=false;
     teamStage=TeamStage{};
     response->setValue("TEAM:GET"); response->notify();
-  } else if (teamPageRequestPending >= 0 && connected && linkAuthenticated &&
+  } else if (teamPageRequestPending >= 0 && wdg::accountScopedStore.sessionReady() &&
+             wdg::accountScopedStore.confirmed() && connected && linkAuthenticated &&
              profileClientReady && response && !batchActive && !viewportTransaction.active()) {
     const int page=teamPageRequestPending;
     teamPageRequestPending=-1;
@@ -657,6 +710,9 @@ void pollBle() {
   // Each short chunk has its own ACK; no larger BLE MTU is required.
   ProfilePacket profilePacket{};
   if (profileQueue && xQueueReceive(profileQueue, &profilePacket, 0) == pdTRUE) {
+    if (!wdg::accountScopedStore.sessionReady()) {
+      if (response) { response->setValue("PROFILE:OWNER_REQUIRED"); response->notify(); }
+    } else {
     const char* message = profilePacket.value;
     char replyBuffer[32] = {};
     const char* reply = "PROFILE:INVALID";
@@ -737,19 +793,31 @@ void pollBle() {
                profileStage.expectedGangChunks > 0 &&
                profileStage.nextGangChunk == profileStage.expectedGangChunks &&
                profileStage.gangLength > 0) {
-      setOperatorProfile(profileStage.username, profileStage.gang,
-                         profileStage.wifi, profileStage.ble,
-                         profileStage.total, profileStage.badges);
-      if(profileStage.haveActivity)
-        setOperatorActivity(profileStage.activityRank,profileStage.activeDays);
+      wdg::ScopedOperator snapshot{};
+      snprintf(snapshot.username, sizeof(snapshot.username), "%s", profileStage.username);
+      snprintf(snapshot.gang, sizeof(snapshot.gang), "%s", profileStage.gang);
+      snapshot.wifi = profileStage.wifi; snapshot.ble = profileStage.ble;
+      snapshot.total = profileStage.total; snapshot.badges = profileStage.badges;
+      if (wdg::accountScopedStore.commitOperator(snapshot)) {
+        setOperatorProfile(snapshot.username, snapshot.gang,
+                           snapshot.wifi, snapshot.ble, snapshot.total, snapshot.badges);
+        if (profileStage.haveActivity)
+          setOperatorActivity(profileStage.activityRank, profileStage.activeDays);
+        restoreScopedGangAfterProfile();
+        teamSummaryRequestPending = true;
+        reply = "PROFILE:E:OK";
+      } else reply = "PROFILE:E:STORAGE";
       profileStage = ProfileStage{};
-      reply = "PROFILE:E:OK";
     }
     if (response) { response->setValue(reply); response->notify(); }
+    }
   }
   // Team snapshot/page is staged separately; bad/missing data never affects AP cache.
   TeamPacket teamPacket{};
   if(teamQueue && xQueueReceive(teamQueue,&teamPacket,0)==pdTRUE) {
+    if (!wdg::accountScopedStore.sessionReady() || !wdg::accountScopedStore.confirmed()) {
+      if (response) { response->setValue("TEAM:OWNER_REQUIRED"); response->notify(); }
+    } else {
     const char* message=teamPacket.value;
     const char* reply="TEAM:INVALID";
     char out[32]={};
@@ -831,6 +899,7 @@ void pollBle() {
       teamStage.page=-1;reply="TEAM:Q:OK";
     }
     if(response){response->setValue(reply);response->notify();}
+    }
   }
   ClockSync clock{};
   if (clockQueue && xQueueReceive(clockQueue, &clock, 0) == pdTRUE) {

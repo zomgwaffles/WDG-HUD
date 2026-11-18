@@ -69,6 +69,7 @@ class DrivingSessionService : Service() {
     private var pendingWrite = false
     private var pendingWriteAt = 0L
     private var watchCapsState = "UNKNOWN"
+    private var watchAccountCapable = false
     private var watchGangNameSupported = false
     private var watchFullSectorNamesSupported = false
     private var capsSinceMs = 0L
@@ -459,6 +460,8 @@ class DrivingSessionService : Service() {
     private val operatorProfileExecutor = Executors.newSingleThreadExecutor()
     private var operatorProfileFetching = false
     private var operatorProfilePackets = emptyList<String>()
+    // Reject an old asynchronous /api/me result after an account edit.
+    private var operatorProfileAccountKey = ""
     private var operatorProfileIndex = 0
     private var operatorProfileAwaiting: String? = null
     private var operatorProfileAckAt = 0L
@@ -481,6 +484,11 @@ class DrivingSessionService : Service() {
         teamPackets=emptyList();teamPacketIndex=0;teamAwaiting=null
     }
     private fun sendTeamIfReady() {
+        if (accountChangePending() || !watchAccountCapable ||
+            (teamSnapshotKey.isNotBlank() && teamSnapshotKey != readApiKey())) {
+            resetTeamTransfer()
+            return
+        }
         if (teamPackets.isEmpty() || activityVisible || mtu<64 || inProgress || pendingWrite ||
             awaitingCenter!=null || geoQueue.active || geoQueue.waitingForAck ||
             operatorProfilePackets.isNotEmpty()) return
@@ -511,7 +519,7 @@ class DrivingSessionService : Service() {
         }
     }
     private fun maybeRefreshTeam(key: String) {
-        if (teamFetching || key.isBlank() || activityVisible || !active) return
+        if (accountChangePending() || teamFetching || key.isBlank() || activityVisible || !active) return
         val age = System.currentTimeMillis() - teamFetchedAt
         if (teamSnapshotLoaded && age in 0 until TeamProfileWire.CACHE_MS) return
         val elapsed = now()
@@ -548,7 +556,8 @@ class DrivingSessionService : Service() {
         }
     }
     private fun requestTeam(page: Int?) {
-        if (activityVisible || gatt==null || mtu<64) return
+        if (accountChangePending() || !watchAccountCapable ||
+            activityVisible || gatt==null || mtu<64) return
         if (page!=null && teamPackets.isNotEmpty()) {teamDeferredPage=page;return}
         val key=readApiKey()
         if (key.isBlank()) {resetTeamTransfer();teamPackets=listOf("TEAM,ERR");return}
@@ -601,11 +610,17 @@ class DrivingSessionService : Service() {
     }
 
     private fun resetOperatorProfileTransfer() {
+        operatorProfileAccountKey = ""
         operatorProfilePackets = emptyList()
         operatorProfileIndex = 0
         operatorProfileAwaiting = null
     }
     private fun sendOperatorProfileIfReady() {
+        if (accountChangePending() ||
+            (operatorProfileAccountKey.isNotBlank() && operatorProfileAccountKey != readApiKey())) {
+            resetOperatorProfileTransfer()
+            return
+        }
         if (operatorProfilePackets.isEmpty() || activityVisible || mtu < 64 || inProgress ||
             awaitingCenter != null || (desiredWatchCenter != null && desiredWatchCenter != lastCenterAck)) return
         if (operatorProfileAwaiting != null) {
@@ -619,6 +634,7 @@ class DrivingSessionService : Service() {
         val packet = operatorProfilePackets[operatorProfileIndex]
         if (send(packet)) {
             operatorProfileAwaiting = when {
+                packet.startsWith("OWNER,") -> "OWNER:OK"
                 packet.startsWith("PROFILE,S,") -> "PROFILE:S:OK"
                 packet.startsWith("PROFILE,N,") -> "PROFILE:N:OK"
                 packet.startsWith("PROFILE,G,") ->
@@ -632,10 +648,10 @@ class DrivingSessionService : Service() {
     }
     private fun onOperatorProfileMessage(message: String): Boolean {
         if (message == "PROFILE:GET") {
-            refreshOperatorProfile()
+            if (operatorProfilePackets.isEmpty()) refreshOperatorProfile()
             return true
         }
-        if (!message.startsWith("PROFILE:")) return false
+        if (!message.startsWith("PROFILE:") && !message.startsWith("OWNER:")) return false
         if (operatorProfilePackets.isNotEmpty()) {
             if (message == operatorProfileAwaiting) {
                 operatorProfileAwaiting = null
@@ -652,7 +668,8 @@ class DrivingSessionService : Service() {
         return true
     }
     private fun refreshOperatorProfile() {
-        if (activityVisible || gatt == null || mtu < 64 || operatorProfileFetching) return
+        if (!watchAccountCapable || accountChangePending() ||
+            activityVisible || gatt == null || mtu < 64 || operatorProfileFetching) return
         val key = readApiKey()
         if (key.isBlank()) {
             log("G5A19 profile refresh requires saved API key")
@@ -682,7 +699,8 @@ class DrivingSessionService : Service() {
                 fun safe(value: String, default: String) = value
                     .map { if (it.code in 32..126 && it != ',') it else '?' }
                     .joinToString("").trim().ifBlank { default }
-                val user = safe(data.optString("username", ""), "UNKNOWN").take(20)
+                val user = AccountOwnerWire.claimedUsername(data.optString("username", ""))
+                val ownerPacket = AccountOwnerWire.ownerPacket(user)
                 val gang = safe(data.optString("gang", ""), "NO GANG")
                 // No silent 20-character gang truncation. Supports up to 96
                 // ASCII characters without changing the negotiated BLE MTU.
@@ -704,19 +722,14 @@ class DrivingSessionService : Service() {
                 }
                 // Optional 30-day activity rank: not the numeric leaderboard position.
                 // Never fabricate the value when the public SVG is unreadable.
-                var activity = ActivityRankProbe.fromProfile(data)
-                if (activity.rank == null || activity.days == null) {
-                    val card = try { ActivityRankProbe.fetchCardCached(getSharedPreferences("wdghud", MODE_PRIVATE)
-                        .getString(ActivityRankProbe.CARD_URL_KEY,
-                            "https://wdgwars.pl/card/5029-V4AZHYWQ.svg").orEmpty()) }
-                        catch (_: Exception) { ActivityRankProbe.Activity(null, null) }
-                    activity = ActivityRankProbe.Activity(activity.rank ?: card.rank, activity.days ?: card.days)
-                }
-                ActivityRankProbe.packet(activity)?.let { profileData.add(it) }
+                // The service never reuses an unrelated account's public SVG.
+                // Optional card enrichment is owned by the Activity's per-account URL.
+                ActivityRankProbe.packet(ActivityRankProbe.fromProfile(data))
+                    ?.let { profileData.add(it) }
                 profileData.add("PROFILE,E") // Commit only after every chunk is ACKed.
                 require(profileData.all { it.toByteArray(Charsets.UTF_8).size <= 61 })
-                packets = profileData
-                log("G5A19 /api/me profile fetched")
+                packets = listOf(ownerPacket) + profileData
+                log("G5A49.4d /api/me owner/profile fetched")
             } catch (e: Exception) {
                 log("G5A19 profile refresh failed: ${e.javaClass.simpleName}: ${e.message}")
             } finally {
@@ -724,8 +737,11 @@ class DrivingSessionService : Service() {
             }
             main.post {
                 operatorProfileFetching = false
-                if (!activityVisible && gatt != null && mtu >= 64) {
+                if (!activityVisible && !accountChangePending() &&
+                    readApiKey() == key && watchAccountCapable && gatt != null && mtu >= 64 &&
+                    packets.firstOrNull()?.startsWith("OWNER,") == true) {
                     resetOperatorProfileTransfer()
+                    operatorProfileAccountKey = key
                     operatorProfilePackets = packets
                 }
             }
@@ -876,6 +892,7 @@ class DrivingSessionService : Service() {
                 gattStartedAtMs = 0L
                 log("BLE ready=${mtu >= 64}")
                 watchCapsState = "UNKNOWN"
+                watchAccountCapable = false
                 watchGangNameSupported = false
                 watchFullSectorNamesSupported = false
                 geoCacheSupported = false
@@ -1022,10 +1039,12 @@ class DrivingSessionService : Service() {
         if (onTeamMessage(message)) return
         if (message.startsWith("CAPS,") || (watchCapsState == "PROBING" && message == "ERR:UNKNOWN_COMMAND")) {
             watchCapsState = WatchCapabilities.classify(message)
+            watchAccountCapable = AccountOwnerWire.supported(message)
             watchGangNameSupported = WatchCapabilities.supportsGangNames(message)
             watchFullSectorNamesSupported = WatchCapabilities.supportsFullSectorNames(message)
             geoCacheSupported = WatchCapabilities.supportsGeoCache(message)
             if (geoCacheSupported) warmFromCachedDetails()
+            if (watchAccountCapable) refreshOperatorProfile()
             log("G4B watch capabilities=$watchCapsState gang=$watchGangNameSupported")
             return
         }
@@ -1287,7 +1306,12 @@ class DrivingSessionService : Service() {
         driveTransfer()
     }
 
+    private fun accountChangePending(): Boolean =
+        getSharedPreferences("wdghud_account_fence", MODE_PRIVATE)
+            .getBoolean("pending", false)
+
     private fun readApiKey(): String {
+        if (accountChangePending()) return ""
         val encoded = getSharedPreferences("wdghud_credentials", MODE_PRIVATE)
             .getString("api_key_cipher_v1", null) ?: return ""
         return try {
@@ -1660,6 +1684,7 @@ class DrivingSessionService : Service() {
         gatt = null; command = null; mtu = 23; pendingWrite = false
         gattStartedAtMs = 0L
         watchCapsState = "UNKNOWN"
+        watchAccountCapable = false
         watchGangNameSupported = false
         watchFullSectorNamesSupported = false
         geoCacheSupported = false

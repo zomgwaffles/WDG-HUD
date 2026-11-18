@@ -5,6 +5,7 @@
 #include <vector>
 #include <climits>
 #include "LastGoodStore.h"
+#include "AccountScopedStore.h"
 #include "SectorModel.h"
 #include "Display.h"
 #include "BleTransport.h"
@@ -236,7 +237,11 @@ bool restoreLastGoodSnapshots() {
   Preferences prefs;
   if (!prefs.begin(kNamespace, true)) return false;
   const auto grid = readBlob(prefs, kGridKey, kGridMaxBytes);
-  const auto op = readBlob(prefs, kOperatorKey, kOperatorMaxBytes);
+  // Once account isolation is enabled, the unscoped legacy OPERATOR blob
+  // must never be restored, even after a failed or interrupted account switch.
+  const bool scoped = wdg::accountScopedStore.enabled();
+  const auto op = scoped ? std::vector<uint8_t>{} :
+      readBlob(prefs, kOperatorKey, kOperatorMaxBytes);
   prefs.end();
   bool restored = false;
   if (!grid.empty() && decodeGrid(grid)) {
@@ -286,6 +291,14 @@ bool restoreLastGoodSnapshots() {
       Serial.println("G5A35: restored OPERATOR snapshot from flash");
     }
   }
+  if (scoped) {
+    wdg::ScopedOperator personal{};
+    if (wdg::accountScopedStore.loadOperator(personal)) {
+      setOperatorProfile(personal.username, personal.gang,
+                         personal.wifi, personal.ble, personal.total, personal.badges);
+      Serial.println("G5A49.4d: restored account-scoped OPERATOR from flash");
+    }
+  }
   return restored;
 }
 
@@ -298,6 +311,8 @@ void persistLastGoodGrid() {
 
 void persistLastGoodOperator(const char* username, const char* gang,
                              uint32_t wifi, uint32_t ble, uint32_t total, uint32_t badges) {
+  // Scoped OPERATOR is written transactionally by AccountScopedStore on PROFILE,E.
+  if (wdg::accountScopedStore.enabled()) return;
   if (!username || !gang || !validName(username, 21, false) ||
       !validName(gang, 97, true)) return;
   auto bytes = makeEnvelope(2);

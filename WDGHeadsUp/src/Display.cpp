@@ -9,6 +9,7 @@
 #include "SectorModel.h"
 #include "BleTransport.h"
 #include "LastGoodStore.h"
+#include "AccountScopedStore.h"
 #include "GeoSectorCache.h"
 #include "GeoSectorCache.h"
 #include "IdleAudio.h"
@@ -114,19 +115,30 @@ void saveGangSummary(bool isNoGang = false) {
   }
   current.checksum=gangChecksum(current);
   if (haveSavedGang && memcmp(&lastSavedGang,&current,sizeof(current))==0) return;
-  Preferences prefs;
-  if (!prefs.begin("wdghud",false)) return;
-  bool saved=prefs.putBytes("gangSummary",&current,sizeof(current))==sizeof(current);
-  prefs.end();
+  bool saved = false;
+  if (wdg::accountScopedStore.enabled()) {
+    // Do not modify or fall back to the legacy unscoped gang key.
+    saved = wdg::accountScopedStore.saveGang(&current, sizeof(current));
+  } else {
+    Preferences prefs;
+    if (!prefs.begin("wdghud", false)) return;
+    saved = prefs.putBytes("gangSummary", &current, sizeof(current)) == sizeof(current);
+    prefs.end();
+  }
   if (saved) {lastSavedGang=current;haveSavedGang=true;}
 }
 void loadGangSummary() {
-  Preferences prefs;
-  if (!prefs.begin("wdghud",true)) return;
   SavedGangSummary restored{};
-  const bool lengthOk=prefs.getBytesLength("gangSummary")==sizeof(restored);
-  const bool readOk=lengthOk && prefs.getBytes("gangSummary",&restored,sizeof(restored))==sizeof(restored);
-  prefs.end();
+  bool readOk = false;
+  if (wdg::accountScopedStore.enabled()) {
+    readOk = wdg::accountScopedStore.loadGang(&restored, sizeof(restored));
+  } else {
+    Preferences prefs;
+    if (!prefs.begin("wdghud", true)) return;
+    const bool lengthOk = prefs.getBytesLength("gangSummary") == sizeof(restored);
+    readOk = lengthOk && prefs.getBytes("gangSummary", &restored, sizeof(restored)) == sizeof(restored);
+    prefs.end();
+  }
   if (!readOk || restored.magic!=0x57444746UL || restored.version!=1 ||
       restored.bytes!=sizeof(restored) || restored.checksum!=gangChecksum(restored) ||
       (restored.state!=1 && restored.state!=2) ||
@@ -1817,6 +1829,27 @@ void setOperatorProfile(const char* username, const char* gang,
                           operatorProfile.wifi, operatorProfile.ble,
                           operatorProfile.total, operatorProfile.badges);
   if (activeNavigation && activeNavigation->screen == SCREEN_CARD) drawCardScreen();
+}
+
+void resetAccountPersonalDisplay() {
+  // Only a verified owner change hides personal snapshots. Never touch the
+  // geographic cache, 3x3/5x5 grid, AP counts, or BLE bonding.
+  operatorProfile = OperatorProfileData{};
+  teamScreen = TeamScreenData{};
+  lastSavedGang = SavedGangSummary{};
+  haveSavedGang = false;
+  snprintf(activityRank, sizeof(activityRank), "--");
+  activityDays30 = -1;
+  if (activeNavigation && activeNavigation->screen == SCREEN_CARD) drawCardScreen();
+  if (activeNavigation && activeNavigation->screen == SCREEN_TEAM) drawTeamScreen();
+  if (activeNavigation && activeNavigation->screen == SCREEN_MEMBERS) drawMembersScreen();
+}
+
+void restoreScopedGangAfterProfile() {
+  // A completed owner-matched OPERATOR record unlocks only its matching GANG.
+  teamScreen = TeamScreenData{};
+  loadGangSummary();
+  if (activeNavigation && activeNavigation->screen == SCREEN_TEAM) drawTeamScreen();
 }
 
 void operatorProfileFetchFailed() {

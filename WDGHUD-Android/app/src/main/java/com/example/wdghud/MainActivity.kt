@@ -771,6 +771,12 @@ class MainActivity : ComponentActivity() {
     // Blocks Activity reconnects during foreground-service ownership.
     private var activityHasFocusForBle = true
     private var apiKey by mutableStateOf("")
+    // G5A49.4d.1: changing credentials fences all asynchronous account transfers.
+    // Pending verification is persisted; restarting the app must not bypass it.
+    private val accountFence = AccountChangeFence()
+    private val accountFencePrefs by lazy {
+        getSharedPreferences("wdghud_account_fence", Context.MODE_PRIVATE)
+    }
     private var keyTestStatus by mutableStateOf("UPLINK // Awaiting credentials")
     private var apiKeyError by mutableStateOf(false)
     private var keyTesting by mutableStateOf(false)
@@ -928,6 +934,7 @@ class MainActivity : ComponentActivity() {
     private var ready by mutableStateOf(false)
     // G4B negotiation is per GATT connection. Unanswered/legacy watches remain legacy.
     private var watchCapsState = "UNKNOWN"
+    private var watchAccountCapable = false // ACCOUNT1 required for personal BLE payloads.
     private var watchGangNameSupported = false
     private var watchFullSectorNamesSupported = false
     // G5A36.1: hold a requested sync until GANG96 is actually negotiated.
@@ -1018,7 +1025,7 @@ class MainActivity : ComponentActivity() {
         cellHandler.removeCallbacks(teamPump)
     }
     private fun queueTeamPackets(packets: List<String>) {
-        if (!activityHasFocusForBle || !ready) return
+        if (accountFence.blocked || !watchAccountCapable || !activityHasFocusForBle || !ready) return
         clearTeamTransfer()
         teamPackets = packets
         cellHandler.post(teamPump)
@@ -1040,7 +1047,9 @@ class MainActivity : ComponentActivity() {
         }
     }
     private fun maybeRefreshTeam(key: String) {
-        if (teamFetching || key.isBlank() || !activityHasFocusForBle) return
+        if (accountFence.blocked || teamFetching || key.isBlank() || !activityHasFocusForBle) return
+        val accountTicket = accountFence.snapshot()
+        if (!accountFence.accepts(accountTicket) || accountTicket.key != key.trim()) return
         val age = System.currentTimeMillis() - teamFetchedAt
         if (teamSnapshotLoaded && age in 0 until TeamProfileWire.CACHE_MS) return
         val elapsed = android.os.SystemClock.elapsedRealtime()
@@ -1058,7 +1067,8 @@ class MainActivity : ComponentActivity() {
             if (ok) TeamSnapshotStore.save(applicationContext, key, snapshot, fetched)
             runOnUiThread {
                 teamFetching = false
-                if (apiKey.trim() != key) return@runOnUiThread
+                // The key may have changed away and back during the HTTP request.
+                if (!accountFence.accepts(accountTicket) || apiKey.trim() != key) return@runOnUiThread
                 // Push only when a COMPLETE newly fetched snapshot actually differs.
                 // The watch stores it in NVS; a timed API refresh never blanks it.
                 val teamChanged = ok && (!teamSnapshotLoaded || TeamProfileWire.summary(teamSnapshot) != TeamProfileWire.summary(snapshot))
@@ -1084,7 +1094,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     private fun requestTeam(page: Int?) {
-        if (!activityHasFocusForBle || !ready) return
+        if (accountFence.blocked || !watchAccountCapable || !activityHasFocusForBle || !ready) return
         if (page != null && teamPackets.isNotEmpty()) { teamDeferredPage = page; return }
         val key = apiKey.trim()
         if (key.isBlank()) { queueTeamPackets(listOf("TEAM,ERR")); return }
@@ -1160,6 +1170,7 @@ class MainActivity : ComponentActivity() {
                 val packet = operatorProfilePackets[operatorProfileIndex]
                 if (writeCommand(packet)) {
                     operatorProfileAwaiting = when {
+                        packet.startsWith("OWNER,") -> "OWNER:OK"
                         packet.startsWith("PROFILE,S,") -> "PROFILE:S:OK"
                         packet.startsWith("PROFILE,N,") -> "PROFILE:N:OK"
                         packet.startsWith("PROFILE,G,") ->
@@ -1181,17 +1192,19 @@ class MainActivity : ComponentActivity() {
         cellHandler.removeCallbacks(operatorProfilePump)
     }
     private fun queueOperatorProfilePackets(packets: List<String>) {
-        if (!activityHasFocusForBle || !ready) return
+        if (accountFence.blocked || !watchAccountCapable || !activityHasFocusForBle || !ready) return
         clearOperatorProfileTransfer()
         operatorProfilePackets = packets
         cellHandler.post(operatorProfilePump)
     }
     private fun onOperatorProfileMessage(message: String): Boolean {
         if (message == "PROFILE:GET") {
-            refreshOperatorProfile()
+            // The watch requests a new profile after accepting OWNER. Do not
+            // interrupt an in-progress OWNER -> PROFILE transfer.
+            if (operatorProfilePackets.isEmpty()) refreshOperatorProfile()
             return true
         }
-        if (!message.startsWith("PROFILE:")) return false
+        if (!message.startsWith("PROFILE:") && !message.startsWith("OWNER:")) return false
         if (operatorProfilePackets.isNotEmpty()) {
             if (message == operatorProfileAwaiting) {
                 operatorProfileAwaiting = null
@@ -1211,8 +1224,10 @@ class MainActivity : ComponentActivity() {
         return true
     }
     private fun refreshOperatorProfile() {
-        if (!activityHasFocusForBle || !ready || operatorProfileFetching) return
+        if (accountFence.blocked || !watchAccountCapable || !activityHasFocusForBle || !ready || operatorProfileFetching) return
+        val accountTicket = accountFence.snapshot()
         val key = apiKey.trim()
+        if (!accountFence.accepts(accountTicket)) return
         if (key.isEmpty()) {
             Log.w(TAG, "G5A19 profile refresh requires saved API key")
             queueOperatorProfilePackets(listOf("PROFILE,ERR"))
@@ -1240,7 +1255,8 @@ class MainActivity : ComponentActivity() {
                 fun safe(value: String, default: String) = value
                     .map { if (it.code in 32..126 && it != ',') it else '?' }
                     .joinToString("").trim().ifBlank { default }
-                val user = safe(data.optString("username", ""), "UNKNOWN").take(20)
+                val user = AccountOwnerWire.claimedUsername(data.optString("username", ""))
+                val ownerPacket = AccountOwnerWire.ownerPacket(user)
                 val gang = safe(data.optString("gang", ""), "NO GANG")
                 // No silent 20-character gang truncation. Supports up to 96
                 // ASCII characters without changing the negotiated BLE MTU.
@@ -1275,8 +1291,10 @@ class MainActivity : ComponentActivity() {
                 ActivityRankProbe.packet(activity)?.let { profileData.add(it) }
                 profileData.add("PROFILE,E") // Commit only after every chunk is ACKed.
                 require(profileData.all { it.toByteArray(Charsets.UTF_8).size <= 61 })
-                packets = profileData
-                Log.i(TAG, "G5A19 /api/me profile fetched")
+                // An authenticated owner offer must be ACKed before any
+                // personal content can reach watch storage.
+                packets = listOf(ownerPacket) + profileData
+                Log.i(TAG, "G5A49.4d /api/me owner/profile fetched")
             } catch (e: Exception) {
                 Log.w(TAG, "G5A19 profile refresh failed: ${e.javaClass.simpleName}: ${e.message}")
             } finally {
@@ -1284,7 +1302,8 @@ class MainActivity : ComponentActivity() {
             }
             runOnUiThread {
                 operatorProfileFetching = false
-                if (activityHasFocusForBle && ready) queueOperatorProfilePackets(packets)
+                if (accountFence.accepts(accountTicket) && activityHasFocusForBle && ready)
+                    queueOperatorProfilePackets(packets)
             }
         }
     }
@@ -1535,10 +1554,13 @@ class MainActivity : ComponentActivity() {
             if (onTeamMessage(message)) return@runOnUiThread
             if (message.startsWith("CAPS,") || (watchCapsState == "PROBING" && message == "ERR:UNKNOWN_COMMAND")) {
                 watchCapsState = WatchCapabilities.classify(message)
+                watchAccountCapable = AccountOwnerWire.supported(message)
                 watchGangNameSupported = WatchCapabilities.supportsGangNames(message)
                 watchFullSectorNamesSupported = WatchCapabilities.supportsFullSectorNames(message)
                 geoCacheSupported = WatchCapabilities.supportsGeoCache(message)
                 if (geoCacheSupported) warmWatchCachePending = true
+                if (watchAccountCapable) refreshOperatorProfile()
+                else apiStatus = "Watch firmware lacks ACCOUNT1; personal data held"
                 Log.i(TAG, "G5A36.1 watch capabilities=$message fullNames=$watchFullSectorNamesSupported")
                 if (fullNameSyncPending) {
                     fullNameSyncPending = false
@@ -1651,6 +1673,7 @@ class MainActivity : ComponentActivity() {
             negotiatedMtu = 23
             capsHandler.removeCallbacks(capsProbe)
             watchCapsState = "UNKNOWN"
+            watchAccountCapable = false
             watchGangNameSupported = false
             watchFullSectorNamesSupported = false
             geoCacheSupported = false
@@ -1733,6 +1756,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startScanning(autoConnect: Boolean = false) {
+        if (accountFence.blocked) {
+            status = "Verify WDGWars access key before reconnecting watch"
+            return
+        }
         if (!activityHasFocusForBle) return
         if (watchPairingInProgress) return
         val retryingFailedPairing = pairingRejected && !autoConnect
@@ -1762,6 +1789,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectToWatch() {
+        if (accountFence.blocked) {
+            status = "Verify WDGWars access key before connecting watch"
+            return
+        }
         if (!activityHasFocusForBle) return
         val device = watchDevice ?: run { status = "Scan for watch first"; return }
         try {
@@ -1934,6 +1965,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (keyTesting) return
+        val ticket = accountFence.snapshot()
         apiKeyError = false
         keyTesting = true
         keyTestStatus = "AUTH // Verifying credentials..."
@@ -1950,15 +1982,22 @@ class MainActivity : ComponentActivity() {
                 val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                     ?.bufferedReader()?.use { it.readText() } ?: ""
                 val validJson = try { JSONObject(body); true } catch (_: Exception) { false }
+                val valid = code == 200 && validJson
                 runOnUiThread {
-                    keyTestStatus = when {
-                        code == 200 && validJson -> "AUTH VERIFIED // Uplink authorized"
-                        else -> "AUTH REJECTED // HTTP $code ($type)"
+                    // Never accept a late verification response for a replaced key.
+                    if (!accountFence.isCurrent(ticket)) return@runOnUiThread
+                    val accepted = accountFence.completeVerification(ticket, valid)
+                    if (accepted) {
+                        accountFencePrefs.edit().putBoolean("pending", false).commit()
+                        status = "Access key verified; watch can reconnect"
                     }
+                    keyTestStatus = if (valid) "AUTH VERIFIED // Uplink authorized"
+                        else "AUTH REJECTED // HTTP $code ($type)"
                     keyTesting = false
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    if (!accountFence.isCurrent(ticket)) return@runOnUiThread
                     keyTestStatus = "AUTH ERROR // ${e.javaClass.simpleName}"
                     keyTesting = false
                 }
@@ -2600,6 +2639,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startDrivingSession() {
+        if (accountFence.blocked) {
+            status = "Verify WDGWars access key before starting a driving session"
+            return
+        }
         val locationGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val bluetoothGranted = Build.VERSION.SDK_INT < 31 ||
                 (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
@@ -2727,12 +2770,15 @@ class MainActivity : ComponentActivity() {
         bondReceiverRegistered = true
         websiteLoginVerified = getPreferences(Context.MODE_PRIVATE).getBoolean("website_login_verified", false)
         apiKey = restoreApiKey()
+        accountFence.restore(apiKey, accountFencePrefs.getBoolean("pending", false))
         loadProfileCardForAccount(apiKey)
         loadSharedSectorCache()
         Log.i("WDGHUD_CACHE", "G5A42 HISTORY_TOTAL=${SectorCacheStore.count(this)} persisted AP sectors")
         territoryForCache = TerritoryCacheStore.load(this)
         drivingSessionActive = getSharedPreferences("wdghud_session", Context.MODE_PRIVATE)
             .getBoolean("active", false)
+        // A pending account switch must not resume a stale background BLE owner.
+        if (accountFence.blocked && drivingSessionActive) stopDrivingSession()
         // Configure system bars only after the decor view is attached. On some
         // Samsung/Android 16 devices window.insetsController throws before attach.
         window.decorView.post {
@@ -2978,15 +3024,31 @@ class MainActivity : ComponentActivity() {
                             Spacer(Modifier.height(8.dp))
                             OutlinedTextField(
                                 value = apiKey,
-                                onValueChange = {
-                                    if (it != apiKey) loadProfileCardForAccount(it)
-                                    apiKey = it
-                                    persistApiKey(it)
-                                    if (it.isNotBlank()) {
-                                        apiKeyError = false
-                                        if (keyTestStatus == "AUTH // Credentials required")
-                                            keyTestStatus = "AUTH // Awaiting verification"
+                                onValueChange = { entered ->
+                                    if (entered != apiKey) loadProfileCardForAccount(entered)
+                                    if (accountFence.edit(entered)) {
+                                        // Commit the fence BEFORE storing a new API key: a crash
+                                        // must not allow reconnection without verification.
+                                        accountFencePrefs.edit().putBoolean("pending", true).commit()
+                                        clearTeamTransfer()
+                                        teamDeferredPage = null
+                                        teamNeedsResponse = false
+                                        teamRequestedPage = null
+                                        teamSnapshotKey = ""
+                                        teamSnapshot = null
+                                        teamSnapshotLoaded = false
+                                        teamFetchedAt = 0L
+                                        clearOperatorProfileTransfer()
+                                        stopScanning()
+                                        watchGatt?.let { closeGatt(it) }
+                                        if (drivingSessionActive) stopDrivingSession()
+                                        status = "Account credentials changed; verify access key"
+                                        keyTestStatus = "AUTH // Awaiting verification"
+                                        keyTesting = false // stale HTTP callbacks are generation-fenced
                                     }
+                                    apiKey = entered
+                                    persistApiKey(entered)
+                                    if (entered.isNotBlank()) apiKeyError = false
                                 },
                                 label = { Text("WDGWARS // ACCESS KEY") },
                                 placeholder = {
