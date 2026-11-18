@@ -36,7 +36,7 @@ WDGWars HTTPS API / authenticated website session
 | `BleLinkHealth.kt`, `RecoveryBackoff.kt` | BLE heartbeat and bounded reconnection policy |
 | `WDGHeadsUp/src/BleTransport.cpp` | NimBLE GATT, secure pairing, packet staging/ACKs, profile and geographic receiver |
 | `WDGHeadsUp/src/GeoSectorCache.cpp` | Watch geography/cache and sector recentering |
-| `WDGHeadsUp/src/LastGoodStore.cpp` | Persist validated display snapshots across reboot |
+| `WDGHeadsUp/src/LastGoodStore.cpp`, `src/AccountScopedStore.cpp` | Persist validated geographic snapshots plus account-scoped personal OPERATOR/GANG data across reboot |
 | `WDGHeadsUp/src/Display.cpp`, `src/Touch.cpp` | Native-resolution watch screens and gestures |
 
 ## Sector coordinates, anchors and lookahead
@@ -63,12 +63,12 @@ The permanent anchor registry stores immutable bounds in SQLite, separately from
 | AP sector history | Android persistent cache, cumulative beyond current 25 | Replace matching sector only with validated, successful newer data |
 | Successful sync age | Android per-sector timestamp | Failed or partial refresh must **not** mark a sector fresh |
 | Active 5×5 working window | Android and watch view of history | Recenter from GPS without an HTTP prerequisite |
-| Last-good HUD/OPERATOR | Watch NVS | Only complete accepted snapshots can replace prior valid view |
+| Last-good HUD / OPERATOR | Watch NVS | Geographic snapshots remain independent; personal OPERATOR is committed under the verified account after complete accepted BLE transfer |
 | Full GANG dossier | Android private preferences, scoped to a hash of the API key | Validated full response; failure preserves prior dossier |
-| GANG summary | Watch NVS | Validated complete summary (checksum), survives BLE failure/reboot |
+| GANG summary | Watch NVS | Validated, complete account-scoped summary, restored only when the selected/confirmed owner matches |
 | API key | Android Keystore-backed AES-GCM protected private preferences | Not stored on watch or intentionally checked into Git |
 
-**Account-switch limitation:** Watch GANG summary is currently stored at a single watch-local key, not tagged by API-account identity; a different user's prior summary may be shown until a new successful transfer. Do not call account migration release-ready without resolving or explicitly accepting this limitation.
+**Account switching:** G5A49.4d added authenticated `OWNER` handshake (verified-username-derived token) and account-scoped watch OPERATOR/GANG NVS records; legacy unscoped personal data is not restored after scoping is activated. The maintainer reported passing same-account/offline reboot hardware checks. Real A → B → A hardware acceptance, including interrupted transfers, remains a release gate.
 
 **Staleness:** default 30 minutes, user-configurable 1–240 minutes; stale *data* is still useful display data. Absence, API timeout, and confirmed no-AP are separate states. Background fetches must not erase validated values.
 
@@ -79,7 +79,7 @@ The permanent anchor registry stores immutable bounds in SQLite, separately from
 - Write/command characteristic: `e4c1a101-7c0d-4f91-a2d4-7a50a9d1b001`.
 - Read/notify/response characteristic: `e4c1a102-7c0d-4f91-a2d4-7a50a9d1b001`.
 - Firmware requests LE Secure Connections with passkey pairing, encryption, MITM authentication and bonding. It checks those properties before accepting commands; Android uses OS pairing dialogs. Hardware downgrade/security testing remains necessary.
-- Android considers the link ready after negotiated ATT MTU **at least 64**; watch responds to capability negotiation. Current firmware advertises capabilities including `VIEW,ATOMIC,GANG,GANG96,GEO25`.
+- Android considers the link ready after negotiated ATT MTU **at least 64**; watch responds to capability negotiation. Current firmware advertises capabilities including `VIEW,ATOMIC,GANG,GANG96,GEO25,ACCOUNT1`. An authenticated Android BLE owner must complete `OWNER,<32 hex chars>` with `OWNER:OK` acknowledgment before personal `PROFILE` or `TEAM` traffic.
 - Message families include `GPS`, `CENTER`, geographic cache packets, legacy `BEGIN/CELL/LVL/RAW/END`, `PROFILE`, `TEAM` (user-facing **GANG**), `TIME`, settings, and PING/PONG heartbeat. The packet receiver stages/validates complete snapshots and acknowledges writes; failed partial transfers should never replace committed display state.
 - G5A47 automatically starts the driving service on a ready watch connection. On app foreground/background transitions, only **one** of the Activity or Service should own BLE/GATT at a time.
 

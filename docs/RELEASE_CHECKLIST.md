@@ -9,7 +9,8 @@
 - [ ] Watch PlatformIO build and native logic tests pass on a clean checkout.
 - [ ] Fresh firmware flashing and fresh Android install are demonstrated on compatible, independent hardware (not only the maintainer's existing caches and bonds).
 - [ ] Release build/signing configuration, artifact hashes and versionCode/versionName policy are chosen and tested.
-- [ ] A public license is chosen for the project; bundled third-party components' licenses and notices are reviewed.
+- [x] Maintainer selected GPL-3.0-only for original project code in G5A50.2; root `LICENSE` and first-pass third-party notices prepared (verify after commit).
+- [ ] Audit **all resolved/transitive** third-party dependencies and bundled assets at final pinned versions; preserve required license texts, attributions and notices in distributed artifacts.
 - [ ] CI/build automation and dependency-pinning approach are decided (CI is not yet part of the checked-in repository).
 
 ## B. End-to-end usability
@@ -57,6 +58,7 @@
 | G5A49.3 | Documentation committed on `main` |
 | G5A49.4b/c | Maintainer reported Android/watch builds and test suites passing; legacy cleanup and canonical grid planner merged |
 | G5A49.4d | Maintainer reported Android/watch builds and native tests passing; account-scoped protocol installed and same-account/offline reboot/background BLE hardware smoke checks passed; real A → B → A remains pending |
-| G5A50.1 | Privacy backup hardening proposed for verification; not yet built, merged, or device-tested |
+| G5A50.1 | Maintainer reported Android unit tests, APK build, merged-manifest review and in-place app upgrade successful; committed on `main` as `fc0a3e2377a53a8d75d63921d525c3d15bd241b6` |
+| G5A50.2 | GPL-3.0-only selected by maintainer; legal-text and dependency-notice documents prepared; final transitive audit/signing still pending |
 
 This table records reported evidence, **not** an external laboratory certification.

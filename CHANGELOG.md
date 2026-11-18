@@ -2,7 +2,23 @@
 
 This is a **development-history summary**, not a claim of published GitHub releases. Version identifiers `G5Axx` are internal accepted milestones. Android's current `versionName = "1.0"` should not be treated as proof of a published public v1.0. Entries through G5A46.2 derive from the engineering handoff and were checked against the current project structure; later milestones also reflect maintainer-reported local tests.
 
-## Unreleased — G5A49.3 (documentation, 2026-11-17)
+## Unreleased — G5A50.2 (licensing and release metadata, 2026-11-18)
+
+- Selected GPL-3.0-only for original project code; added unmodified root GPLv3 text and third-party dependency notices.
+- Updated release/security/architecture documentation without changing app ID, signing, firmware, Android behavior or UI.
+- Remaining gates: final resolved third-party audit, release signing, fresh install and two-account switch.
+
+## G5A50.1 — Android privacy hardening (2026-11-18)
+
+- Disabled automatic cloud backup and attempted to exclude app-private data from device-to-device transfer.
+- Updated security and release acceptance documents; maintainer reported Android tests/build and in-place upgrade passing.
+
+## G5A49.4d — Account-scoped BLE and NVS (2026-11-18)
+
+- Added `ACCOUNT1` / `OWNER` BLE handshake, account-fenced Android transfers, account-scoped watch OPERATOR/GANG snapshots and corresponding host tests.
+- Maintainer reported successful same-account synchronization, offline reboot and background BLE tests; real A → B → A hardware test remains pending.
+
+## G5A49.3 — Documentation (2026-11-17)
 
 - Replaced the two-line root README and obsolete firmware-overlay README with current source-build guides.
 - Added installation, user, architecture, testing, security, and release-preparation documentation.

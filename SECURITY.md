@@ -33,4 +33,4 @@ For harmless reproducible bugs, give build revision, steps, expected/actual beha
 
 ## Pre-release policy decisions still needed
 
-Project license, public security reporting workflow, release signing/distribution, and supported Android/board versions have **not** been finalized. See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
+The project license has been selected as GPL-3.0-only for original project code (see [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). The complete third-party distribution audit, private security reporting workflow, release signing/distribution, and supported Android/board versions are **not yet finalized**. See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).

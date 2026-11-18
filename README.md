@@ -36,7 +36,7 @@ The watch and companion are **both required** for live data. XIAO ESP32-C5 wardr
 2. Follow the [User Guide](docs/USER_GUIDE.md) for WDGWars authentication, optional public profile card, watch pairing, and navigation.
 3. Run the checks in [Testing](docs/TESTING.md) before relying on offline cache behavior.
 
-Developer resources: [Architecture](docs/ARCHITECTURE.md) · [Watch display geometry](WDGHeadsUp/docs/WATCH_DISPLAY_GEOMETRY.md) · [Watch project README](WDGHeadsUp/README.md) · [Changelog](CHANGELOG.md) · [Release checklist](docs/RELEASE_CHECKLIST.md) · [Security](SECURITY.md).
+Developer resources: [Architecture](docs/ARCHITECTURE.md) · [Watch display geometry](WDGHeadsUp/docs/WATCH_DISPLAY_GEOMETRY.md) · [Watch project README](WDGHeadsUp/README.md) · [Changelog](CHANGELOG.md) · [Licensing](docs/LICENSING.md) · [Release checklist](docs/RELEASE_CHECKLIST.md) · [Security](SECURITY.md).
 
 ## Repository layout
 
@@ -51,7 +51,9 @@ WDG-HUD/
 ├── WDGHUD-Android/            Android companion (Kotlin / Compose / Gradle)
 │   ├── app/src/main/           UI, BLE service, GPS, API and storage
 │   └── app/src/test/           JVM unit tests
-├── docs/                       Installation, use, architecture and testing
+├── docs/                       Installation, use, architecture, licensing and testing
+├── LICENSE                     GPL version 3, no later-version option for original project code
+├── THIRD_PARTY_NOTICES.md      Bundled and externally resolved dependencies
 └── CHANGELOG.md
 ```
 
@@ -60,7 +62,7 @@ WDG-HUD/
 - WDGWars reports **0.02° latitude × 0.02° longitude** sector spacing (verified from the live `member-territories` response during G5A49.2). The grid follows latitude/longitude lines and their intersections; extreme pole/dateline behavior has not been acceptance-tested.
 - A clean-room hardware install, authenticated pairing downgrade test, account-switch watch-cache behavior, and extended offline return-trip testing are still release gates. See [Release checklist](docs/RELEASE_CHECKLIST.md).
 - No public APK/firmware release binaries are published yet; build from source.
-- **A project-wide license has not been selected.** Public repository visibility does not itself grant reuse rights. The bundled third-party library includes its own license; licensing must be settled before a public v1.0 release.
+- **License:** Original WDG // HUD project code is offered under [GPL-3.0-only](LICENSE). Third-party components retain their own license terms, copyright and notices; see [Third-party notices](THIRD_PARTY_NOTICES.md) and [Licensing guide](docs/LICENSING.md). Full dependency / distribution-notice verification remains a release gate.
 
 ## Contributing / questions
 
