@@ -1,6 +1,7 @@
-# G5A50.3a — Non-distributable signing drill for the EXISTING development package.
-# Does not modify the app, source, Android signing configuration or installed device.
-# Signed output lives under app/build/ (Git-ignored); NEVER publish/install this drill.
+# G5A50.3b — Non-distributable public-ID signing acceptance drill.
+# Android release ID is distinct from the existing development package.
+# Does not modify app source, signing configuration, or installed devices.
+# Signed output stays under app/build/ (Git-ignored); DO NOT PUBLISH or INSTALL yet.
 [CmdletBinding()]
 param(
     [string]$KeyStorePath = (Join-Path $HOME 'WDGHUD-Secrets\android-release\wdghud-release.p12'),
@@ -44,12 +45,21 @@ if (-not (Test-Path -LiteralPath $key -PathType Leaf)) { throw "Keystore not fou
 if ($KeyAlias -notmatch '^[A-Za-z0-9_.-]{1,50}$') { throw 'Invalid key alias.' }
 if (-not (Test-Path (Join-Path $appRoot 'gradlew.bat'))) { throw 'Android project not found.' }
 
-# G5A50.3a is explicitly only a signing dry run with the old development ID.
+# Refuse to run against an unexpected build configuration. This is a *dry run*;
+# no APK will be installed or published by this script.
 $gradleFile = Join-Path $appRoot 'app\build.gradle.kts'
 $gradleText = [IO.File]::ReadAllText($gradleFile)
-if ($gradleText -notmatch 'applicationId\s*=\s*"com\.example\.wdghud"' -or
-    $gradleText -notmatch 'versionCode\s*=\s*1') {
-    throw 'Unexpected Android application ID/version. Stop; review signing policy before continuing.'
+$identityMarkers = @(
+    'applicationId = "com.example.wdghud"',
+    'onVariants(selector().withBuildType("release"))',
+    'variant.applicationId.set("io.github.zomgwaffles.wdghud")',
+    'output.versionCode.set(10000)',
+    'output.versionName.set("1.0.0")'
+)
+foreach ($marker in $identityMarkers) {
+    if (-not $gradleText.Contains($marker)) {
+        throw "Unexpected Gradle identity configuration. Missing expected marker: $marker"
+    }
 }
 
 $candidates = @()
@@ -64,7 +74,7 @@ foreach ($sdk in $candidates) {
 }
 if (-not $tools) { throw 'Cannot find zipalign/apksigner/aapt in Android SDK Build Tools. Provide -SdkPath.' }
 
-Write-Host 'G5A50.3a signing drill ONLY. No application/device install and no public release.'
+Write-Host 'G5A50.3b PUBLIC-ID SIGNING DRILL ONLY. No device install or public release.'
 Write-Host 'Android build-tools:' $tools.version
 Push-Location $appRoot
 try {
@@ -80,14 +90,15 @@ if (-not (Test-Path -LiteralPath $unsigned -PathType Leaf)) {
 
 # Validate the actual packaged application identity. Do not rely only on Gradle source.
 $badging = (& $tools.aapt dump badging $unsigned) | Select-String '^package: name=' | Select-Object -First 1
-if (-not $badging -or $badging.ToString() -notmatch "^package: name='com\.example\.wdghud'") {
-    throw 'Built APK identity is not the expected development ID. Refusing to sign.'
+if ($LASTEXITCODE -ne 0 -or -not $badging -or
+    $badging.ToString() -notmatch "^package:\s+name='io\.github\.zomgwaffles\.wdghud'\s+versionCode='10000'\s+versionName='1\.0\.0'") {
+    throw 'Built APK is not io.github.zomgwaffles.wdghud / 10000 / 1.0.0. Refusing to sign.'
 }
 
-$outDir = Join-Path $appRoot 'app\build\outputs\signing-drill'
+$outDir = Join-Path $appRoot 'app\build\outputs\public-id-drill'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-$aligned = Join-Path $outDir 'WDGHUD-G5A50.3a-aligned-unsigned.apk'
-$signed = Join-Path $outDir 'WDGHUD-G5A50.3a-SIGNING-DRILL-NOT-FOR-DISTRIBUTION.apk'
+$aligned = Join-Path $outDir 'WDGHUD-1.0.0-10000-aligned-unsigned.apk'
+$signed = Join-Path $outDir 'WDGHUD-1.0.0-10000-SIGNING-DRILL-NOT-FOR-DISTRIBUTION.apk'
 if (Test-Path -LiteralPath $signed) { throw "Drill output already exists; move/rename it before re-running: $signed" }
 Invoke-Checked $tools.zipalign @('-f', '4', $unsigned, $aligned)
 Invoke-Checked $tools.zipalign @('-c', '-v', '4', $aligned)
@@ -112,9 +123,9 @@ $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $signed).Hash.ToLowerInvari
 $head = (& git -C $repo rev-parse HEAD).Trim()
 $sumFile = Join-Path $outDir 'SHA256SUMS.txt'
 [IO.File]::WriteAllText($sumFile, "$hash  $(Split-Path -Leaf $signed)`n")
-Write-Host 'SIGNING DRILL PASSED'
+Write-Host 'PUBLIC ID / VERSION / SIGNING DRILL PASSED'
 Write-Host 'Source commit:' $head
 Write-Host 'SHA-256:' $hash
 Write-Host 'Saved in Git-ignored build outputs:' $signed
-Write-Host 'DO NOT INSTALL OR PUBLISH. App ID is still com.example.wdghud.'
-Write-Host 'The final public identity and release version are not configured yet.'
+Write-Host 'Public candidate ID: io.github.zomgwaffles.wdghud, versionCode=10000, versionName=1.0.0'
+Write-Host 'DO NOT INSTALL OR PUBLISH. Fresh-install and upgrade acceptance is still pending.'

@@ -1,14 +1,15 @@
-# Release version policy — G5A50.3a proposal
+# Release version policy — G5A50.3b
 
-**Status:** Proposed policy, not an Android or firmware version-number change.
+**Status:** Android release variant identity configured; public v1.0 is **not** approved or published.
 
-1. `G5Axx` labels are engineering milestones, **not** public semantic releases.
-2. First public tag, only after the release checklist passes: `v1.0.0`. Prior betas, if shipped, should use clearly marked prerelease tags.
-3. Proposed Android public `versionName`: `1.0.0`; proposed first public `versionCode`: `10000`. Every publicly distributed update must increment `versionCode` for the same application ID. Neither value is active yet.
-4. Proposed public Android application ID: `io.github.zomgwaffles.wdghud`. Freeze the application ID and signing key together **before** the first signed public installation. This is currently a proposal, not a code change.
-5. Keep the existing development app ID `com.example.wdghud` and its debug signing environment intact until migration is deliberately designed. A separate public ID creates a separate installation and data sandbox; it cannot see existing AP history or encrypted API credentials.
-6. Watch and Android must remain protocol-compatible. A public release should record the watch build commit SHA, a watch firmware version, the Android version, and the BLE capability minimum (`ACCOUNT1` is currently required for personal data).
-7. Public deliverables should contain signed APK (when enabled), firmware `.bin`, SHA-256 checksums, GPLv3 corresponding source, license and attribution texts, compatibility notes, and clear upgrade/rollback warnings. Never publish keystore, secret signing passwords, API keys or location traces.
-8. Do not tag or publish `v1.0.0` merely because the current Android development Gradle file already says `versionName="1.0"`.
+- Engineering `G5Axx` labels are not public semantic versions.
+- **Debug:** `com.example.wdghud`, `versionCode=1`, `versionName=1.0`, existing debug signing. This stays on the current phone with all locally stored data.
+- **Release:** `io.github.zomgwaffles.wdghud`, `versionCode=10000`, `versionName=1.0.0`, signed manually with the separate release keystore. These values are applied in `androidComponents.onVariants` to the release variant only; Kotlin source namespaces stay `com.example.wdghud`.
+- First public Git tag should be `v1.0.0` only when release gates pass. Pre-release builds must be labeled as candidates and kept private until validated.
+- Subsequent versions of the **same release application ID** must increment `versionCode` and must use the **same signing certificate** (or a verified supported key rotation). Do not recreate the release keystore after publication.
+- Android package IDs define separate app sandboxes. The release APK cannot read the debug app's WDGWars key, profile preferences, or cumulative AP history. **No supported cross-identity migration exists.** The release may coexist with the debug app.
+- Do not uninstall or clear the existing debug app to test this release variant. Fresh-install and signed-release-upgrade checks must use a separate test device/profile and test data only.
+- Watch firmware and Android companion must remain protocol compatible (`ACCOUNT1` capability for personal data). Record the source SHA, firmware version and APK hash with each actual release.
+- Deliverable checklist: signed APK, firmware `.bin`, SHA-256 sums, corresponding GPLv3 source, license notices, hardware compatibility, upgrade/data-retention instructions, and approved release notes.
 
-**Next phase:** Configure public variant + immutable identity and implement a signed-APK upgrade acceptance test. Local testing of G5A50.3a tooling must pass first.
+The signing-drill script is intentionally **not** a publishing tool. It signs only an artifact whose *packaged* manifest reports the exact public ID and version. The resulting drill artifact must not be installed or published until independent acceptance is complete.

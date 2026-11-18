@@ -36,6 +36,19 @@ android {
     }
 }
 
+// G5A50.3b: the existing debug app ID, data and signing remain unchanged.
+// Only the release artifact receives the separate immutable public identity.
+// No product flavors or Android source-package renames are necessary.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.applicationId.set("io.github.zomgwaffles.wdghud")
+        variant.outputs.forEach { output ->
+            output.versionCode.set(10000)
+            output.versionName.set("1.0.0")
+        }
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -52,5 +65,5 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
-	testImplementation("junit:junit:4.13.2")
+    testImplementation("junit:junit:4.13.2")
 }
