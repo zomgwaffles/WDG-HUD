@@ -7,7 +7,7 @@ import java.net.URL
 
 /** G5A45: watch TEAM snapshots; never participates in the GPS/AP sector cache. */
 internal object TeamProfileWire {
-    const val CACHE_MS = 5 * 60 * 1000L
+    const val CACHE_MS = 60 * 60 * 1000L
     const val PAGE_SIZE = 4
     const val MAX_BYTES = 61
     data class Member(val username: String, val role: Int, val total: Long)
@@ -61,7 +61,7 @@ internal object TeamProfileWire {
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("X-API-Key", apiKey)
             connection.setRequestProperty("Accept", "application/json")
-            val status = connection.responseCode
+            val status = PortalHttpPolicy.responseCode(connection)
             if (status == 404) return null
             require(status == 200 && connection.contentType.orEmpty().contains("json", ignoreCase = true)) {
                 "HTTP $status or unexpected content type"

@@ -90,6 +90,14 @@ class MainActivity : ComponentActivity() {
         private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 
+    // One-time permission request, registered before the Activity is STARTED.
+    private val drivingNotificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) {
+                Log.i("WDGHUD_SESSION", "Driving notification permission denied; service may still run")
+            }
+        }
+
     private var websiteLoginVerified by mutableStateOf(false)
     // Interior query points for /api/cell-detail, in 3x3 display order.
     // Territory anchors are kept separate for gang ownership and grid geometry.
@@ -506,6 +514,17 @@ class MainActivity : ComponentActivity() {
             val validFix = fix != null &&
                     (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1000000L in 0..30000L
             if (validFix && fix != null) {
+                // G5A50.4c: gang ownership is independent of AP detail TTL.
+                // A modern GEO25 watch does not perform legacy full-grid scans.
+                TerritoryOwnershipRefresh.requestIfDue(
+                    this@MainActivity, apiKey, fix.latitude, fix.longitude
+                ) { changed ->
+                    if (activityHasFocusForBle && changed > 0) {
+                        territoryForCache = TerritoryCacheStore.load(this@MainActivity)
+                        warmWatchCachePending = true // version includes gang/color
+                        Log.i("WDGHUD_TERRITORY", "WATCH_METADATA_REFRESH changed=$changed")
+                    }
+                }
                 // Use the same canonical global sector ID as the background service.
                 // A busy transfer never commits a new sector, so movement is retried.
                 val cell = anchorRegistry.locate(fix.latitude, fix.longitude)
@@ -1233,10 +1252,17 @@ class MainActivity : ComponentActivity() {
             queueOperatorProfilePackets(listOf("PROFILE,ERR"))
             return
         }
+        // Cached, verified OWNER+PROFILE is sufficient for repeated watch
+        // reconnections for one hour. OWNER is still negotiated on the watch.
+        OperatorProfileSnapshotStore.loadFresh(this, key)?.let { cached ->
+            queueOperatorProfilePackets(cached)
+            return
+        }
         operatorProfileFetching = true
         operatorProfileExecutor.execute {
             var connection: HttpURLConnection? = null
             var packets = listOf("PROFILE,ERR")
+            var verifiedPackets: List<String>? = null
             try {
                 connection = URL("https://wdgwars.pl/api/me").openConnection() as HttpURLConnection
                 connection.connectTimeout = 10000
@@ -1244,9 +1270,9 @@ class MainActivity : ComponentActivity() {
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("X-API-Key", key)
                 connection.setRequestProperty("Accept", "application/json")
-                require(connection.responseCode == 200 &&
+                require(PortalHttpPolicy.responseCode(connection) == 200 &&
                         connection.contentType.orEmpty().contains("json", ignoreCase = true)) {
-                    "HTTP ${connection.responseCode} or invalid content type"
+                    "HTTP ${PortalHttpPolicy.responseCode(connection)} or invalid content type"
                 }
                 val data = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                 fun count(field: String): Long = data.optLong(field, -1L).also {
@@ -1294,6 +1320,7 @@ class MainActivity : ComponentActivity() {
                 // An authenticated owner offer must be ACKed before any
                 // personal content can reach watch storage.
                 packets = listOf(ownerPacket) + profileData
+                verifiedPackets = packets
                 Log.i(TAG, "G5A49.4d /api/me owner/profile fetched")
             } catch (e: Exception) {
                 Log.w(TAG, "G5A19 profile refresh failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -1302,8 +1329,14 @@ class MainActivity : ComponentActivity() {
             }
             runOnUiThread {
                 operatorProfileFetching = false
-                if (accountFence.accepts(accountTicket) && activityHasFocusForBle && ready)
-                    queueOperatorProfilePackets(packets)
+                if (accountFence.accepts(accountTicket) && apiKey.trim() == key) {
+                    // Persist validated data even if BLE disconnected during HTTP.
+                    verifiedPackets?.let {
+                        OperatorProfileSnapshotStore.saveVerified(this@MainActivity, key, it)
+                    }
+                    if (activityHasFocusForBle && ready)
+                        queueOperatorProfilePackets(packets)
+                }
             }
         }
     }
@@ -1977,7 +2010,7 @@ class MainActivity : ComponentActivity() {
                 connection.readTimeout = 10000
                 connection.setRequestProperty("X-API-Key", key)
                 connection.setRequestProperty("Accept", "application/json")
-                val code = connection.responseCode
+                val code = PortalHttpPolicy.responseCode(connection)
                 val type = connection.contentType ?: "unknown"
                 val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
                     ?.bufferedReader()?.use { it.readText() } ?: ""
@@ -2035,7 +2068,7 @@ class MainActivity : ComponentActivity() {
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("X-API-Key", key)
                 connection.setRequestProperty("Accept", "application/json")
-                val statusCode = connection.responseCode
+                val statusCode = PortalHttpPolicy.responseCode(connection)
                 val contentType = connection.contentType ?: "unknown"
                 val redirect = connection.getHeaderField("Location")
                 val result = if (statusCode == 200 && contentType.contains("json", ignoreCase = true)) {
@@ -2085,13 +2118,23 @@ class MainActivity : ComponentActivity() {
             cancelScanningAnnouncement()
             return
         }
+        if (PortalHttpPolicy.isLimited()) {
+            cellTransferStatus = "LEVEL UPLINK // Portal rate limit; retry later"
+            cancelScanningAnnouncement()
+            return
+        }
         levelFetchPending = true
         cellTransferStatus = "LEVEL UPLINK // Querying authenticated sectors"
         val browser = WebView(this)
         levelBrowser = browser
+        browser.settings.userAgentString = PortalHttpPolicy.webUserAgent(browser.settings.userAgentString)
         browser.settings.javaScriptEnabled = true
         browser.settings.domStorageEnabled = true
         browser.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun rateLimited(retryAfter: String) {
+                PortalHttpPolicy.record429(retryAfter)
+            }
             @JavascriptInterface
             fun progress(done: Int, total: Int) {
                 // API fetch is NOT the AP-to-watch uplink: do not send PROG.
@@ -2283,6 +2326,11 @@ class MainActivity : ComponentActivity() {
                                          '&lng=' + encodeURIComponent(lng);
                             const r = await fetch(path, {credentials:'same-origin',
                                 headers:{'Accept':'application/json'}});
+                            if (r.status === 429) {
+                                WDGHudResult.rateLimited(r.headers.get('Retry-After') || '');
+                                results.push({index:i, error:'HTTP 429'});
+                                break;
+                            }
                             const type = r.headers.get('content-type') || '';
                             if (!r.ok || !type.includes('json')) {
                                 results.push({index:i, error:'Login required'}); continue;
@@ -2328,10 +2376,15 @@ class MainActivity : ComponentActivity() {
         }
         layout.addView(heading)
         val browser = WebView(this)
+        browser.settings.userAgentString = PortalHttpPolicy.webUserAgent(browser.settings.userAgentString)
         browser.settings.javaScriptEnabled = true // Required by WDGWars and authenticated sector fetching.
         browser.settings.domStorageEnabled = true
         CookieManager.getInstance().setAcceptCookie(true)
         browser.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun rateLimited(retryAfter: String) {
+                PortalHttpPolicy.record429(retryAfter)
+            }
             @JavascriptInterface
             fun verified() {
                 runOnUiThread {
@@ -2363,6 +2416,10 @@ class MainActivity : ComponentActivity() {
                         const response = await fetch(${JSONObject.quote(path)}, {
                             credentials: 'same-origin', headers: {'Accept': 'application/json'}
                         });
+                        if (response.status === 429) {
+                            WDGHudLogin.rateLimited(response.headers.get('Retry-After') || '');
+                            return;
+                        }
                         if (!response.ok || !(response.headers.get('content-type') || '').includes('json')) return;
                         const data = await response.json();
                         if (data && data.ok === true && Array.isArray(data.levels)) WDGHudLogin.verified();
@@ -2513,7 +2570,7 @@ class MainActivity : ComponentActivity() {
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("Accept", "application/json")
                 connection.setRequestProperty("X-API-Key", key)
-                val code = connection.responseCode
+                val code = PortalHttpPolicy.responseCode(connection)
                 val type = connection.contentType ?: "unknown"
                 if (code != 200 || !type.contains("json", ignoreCase = true)) {
                     throw IllegalStateException("HTTP $code ($type), redirect=${connection.getHeaderField("Location") ?: "none"}")
@@ -2638,6 +2695,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestDrivingNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33) return
+        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        val prefs = getSharedPreferences("wdghud_session", Context.MODE_PRIVATE)
+        if (!DriveNotificationPermissionPolicy.shouldRequest(
+                Build.VERSION.SDK_INT, granted,
+                prefs.getBoolean("notification_permission_prompted_v1", false)
+            )) return
+        // Do not nag users who decline. They can enable notifications in Android Settings.
+        prefs.edit().putBoolean("notification_permission_prompted_v1", true).apply()
+        drivingNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     private fun startDrivingSession() {
         if (accountFence.blocked) {
             status = "Verify WDGWars access key before starting a driving session"
@@ -2660,6 +2731,13 @@ class MainActivity : ComponentActivity() {
             drivingSessionActive = true
             getSharedPreferences("wdghud_session", Context.MODE_PRIVATE)
                 .edit().putBoolean("active", true).apply()
+            // Request notification visibility only after successfully starting the service.
+            // A denial must never disable GPS/BLE or invalidate the active session.
+            try {
+                requestDrivingNotificationPermissionIfNeeded()
+            } catch (permissionError: Exception) {
+                Log.w("WDGHUD_SESSION", "Could not request notification permission", permissionError)
+            }
         } catch (e: Exception) {
             status = "Could not start session: ${e.message}"
         }
@@ -2887,6 +2965,7 @@ class MainActivity : ComponentActivity() {
                                     AndroidView(
                                         factory = { context ->
                                             WebView(context).apply {
+                                                settings.userAgentString = PortalHttpPolicy.webUserAgent(settings.userAgentString)
                                                 settings.javaScriptEnabled = false
                                                 settings.domStorageEnabled = false
                                                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -2973,16 +3052,6 @@ class MainActivity : ComponentActivity() {
                             HudReadout("REFRESH POLICY", "5 MIN / GPS SECTOR CHANGE", HudCyan)
                             Spacer(Modifier.height(8.dp))
                             HudReadout("AUTO REFRESH", autoRefreshStatus)
-                            Spacer(Modifier.height(11.dp))
-                            HudAction(
-                                label = if (apiLoading || levelFetchPending) "SYNCHRONIZING..." else "SYNC // 3×3 SECTOR GRID",
-                                enabled = !apiLoading && cellPackets.isEmpty() &&
-                                        levelPackets.isEmpty() && !levelFetchPending
-                            ) {
-                                lastAutoRefreshMs = android.os.SystemClock.elapsedRealtime()
-                                fetch3x3()
-                            }
-                            Spacer(Modifier.height(12.dp))
                             HudReadout("API STATUS", apiStatus)
                             Spacer(Modifier.height(9.dp))
                             HudReadout("WATCH TRANSFER", cellTransferStatus, HudGreen)

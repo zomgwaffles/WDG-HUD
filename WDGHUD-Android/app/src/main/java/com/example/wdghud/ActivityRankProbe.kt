@@ -8,7 +8,7 @@ import java.net.URL
 internal object ActivityRankProbe {
     // Account-specific user preference; do not treat the public URL as an API key.
     const val CARD_URL_KEY = "wdgwars_public_card_url"
-    const val CARD_CACHE_MS = 10 * 60 * 1000L
+    const val CARD_CACHE_MS = 60 * 60 * 1000L
     private val rankNames = listOf("MACHINE", "RELENTLESS", "COMMITTED", "REGULAR", "CASUAL", "DORMANT")
     data class Activity(val rank: String?, val days: Int?)
     @Volatile private var lastUrl: String = ""
@@ -66,7 +66,7 @@ internal object ActivityRankProbe {
             conn.connectTimeout = 8000
             conn.readTimeout = 10000
             conn.instanceFollowRedirects = false
-            if (conn.responseCode != 200) return Activity(null, null)
+            if (PortalHttpPolicy.responseCode(conn) != 200) return Activity(null, null)
             val text = conn.inputStream.bufferedReader().use { it.readText() }
             return fromSvg(text)
         } finally { conn.disconnect() }

@@ -35,6 +35,7 @@ Record pending;
 uint32_t useCounter = 0;
 int32_t centerNorth = 0, centerEast = 0;
 bool haveCenter = false;
+bool haveSavedInspectionCenter = false;
 int32_t requestedNorth=0,requestedEast=0;
 bool haveRequested=false;
 bool pendingActive = false;
@@ -245,6 +246,8 @@ void restoreGeoSectorCache() {
 }
 
 void geoCacheDeferDisplayUntilCenter() {
+  // Preserve the NVS center for 5x5 inspection only.
+  haveSavedInspectionCenter = haveCenter;
   // A validated 3x3 may have been saved more recently than the 25-sector NVS
   // blob. Never replace that last-good view with an older cached center.
   haveCenter = false;
@@ -405,7 +408,7 @@ bool consumeGeoCacheScreenUpdate() { bool result=screenChanged;screenChanged=fal
 // G5A41: 5x5 inspection reads the existing immutable-key AP cache. The 5x5
 // window is derived from the CURRENT GPS center; no network or scanning here.
 bool geoCacheRead5x5(int slot, SectorData* out, int32_t* rawOut, int32_t* tiersOut) {
-  if (slot < 0 || slot >= 25 || !haveCenter) return false;
+  if (slot < 0 || slot >= 25 || (!haveCenter && !haveSavedInspectionCenter)) return false;
   const int northDelta = 2 - slot / 5;
   const int eastDelta = slot % 5 - 2;
   const int found = findRecord(centerNorth + northDelta, centerEast + eastDelta);

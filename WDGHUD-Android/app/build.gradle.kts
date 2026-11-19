@@ -21,24 +21,25 @@ android {
 
     buildTypes {
         release {
+            // G5A50.3c: Disable R8 optimization until the
+            // release startup IllegalAccessError is resolved.
             optimization {
-                enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
+                enable = false
             }
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     buildFeatures {
         compose = true
     }
 }
 
-// G5A50.3b: the existing debug app ID, data and signing remain unchanged.
-// Only the release artifact receives the separate immutable public identity.
-// No product flavors or Android source-package renames are necessary.
+// Preserve development identity and the separate public release identity.
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
         variant.applicationId.set("io.github.zomgwaffles.wdghud")

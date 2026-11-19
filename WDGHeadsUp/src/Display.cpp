@@ -179,8 +179,8 @@ constexpr uint8_t kOldBrightnessValues[5] = {0x50, 0x80, 0xA8, 0xD0, 0xFF};
 uint8_t brightnessLevel = 1;  // LOW=0, MED=1, HIGH=2.
 uint8_t brightnessRaw = kBrightnessSteps[1];
 uint8_t savedBrightnessRaw = kBrightnessSteps[1];
-constexpr uint16_t kStaleDefaultMinutes = 30;
-constexpr uint16_t kStaleMinMinutes = 1;
+constexpr uint16_t kStaleDefaultMinutes = 60;
+constexpr uint16_t kStaleMinMinutes = 60;
 constexpr uint16_t kStaleMaxMinutes = 240;
 uint16_t staleIntervalMinutes = kStaleDefaultMinutes;
 
@@ -915,6 +915,54 @@ static void drawCenterCourseTriangle(int octant) {
 
 }
 
+// G5A50.3f: dirty-tile tracking for the visible 3x3 / 5x5 grid.
+// Fingerprints are a rendering optimization only: they never change BLE data,
+// the NVS sector records, or account-bound snapshots.
+namespace {
+constexpr uint64_t kRenderHashBasis = 14695981039346656037ULL;
+uint64_t signature3x3[9] = {};
+uint64_t signature5x5[25] = {};
+bool signature3x3Ready = false;
+bool signature5x5Ready = false;
+bool last3x3Live = false, last5x5Live = false;
+bool last3x3Viewport = false, last5x5Viewport = false;
+
+uint64_t renderMix(uint64_t hash, uint32_t value) {
+  return (hash ^ static_cast<uint64_t>(value)) * 1099511628211ULL;
+}
+uint64_t fingerprint3x3(int slot) {
+  const int index = sectorIndexForGridPosition(slot);
+  uint64_t hash = renderMix(kRenderHashBasis, geoCacheTileAvailable(index) ? 1U : 0U);
+  if (!geoCacheTileAvailable(index)) return hash;
+  const SectorData& s = sectors3x3[index];
+  hash = renderMix(hash, static_cast<uint32_t>(s.total));
+  hash = renderMix(hash, static_cast<uint32_t>(s.territoryColor));
+  for (int tier = 1; tier <= 10; ++tier)
+    hash = renderMix(hash, static_cast<uint32_t>(liveTierCounts[index][tier]));
+  for (int rank = 0; rank < 3; ++rank) {
+    hash = renderMix(hash, static_cast<uint32_t>(liveLevelNumbers[index][rank]));
+    hash = renderMix(hash, static_cast<uint32_t>(liveLevelCounts[index][rank]));
+  }
+  return hash;
+}
+uint64_t fingerprint5x5(int slot) {
+  SectorData sector{};
+  int32_t tiers[11] = {};
+  const bool available = geoCacheRead5x5(slot, &sector, nullptr, tiers);
+  uint64_t hash = renderMix(kRenderHashBasis, available ? 1U : 0U);
+  if (!available) return hash;
+  hash = renderMix(hash, static_cast<uint32_t>(sector.total));
+  hash = renderMix(hash, static_cast<uint32_t>(sector.territoryColor));
+  int dominant = 0;
+  for (int tier = 1; tier <= 10; ++tier)
+    if (tiers[tier] > 0 && (dominant == 0 || tiers[tier] > tiers[dominant]))
+      dominant = tier;
+  hash = renderMix(hash, static_cast<uint32_t>(dominant));
+  hash = renderMix(hash, dominant ? static_cast<uint32_t>(tiers[dominant]) : 0U);
+  return hash;
+}
+} // namespace
+
 void draw3x3Screen();
 
 void tickLiveHeading() {
@@ -935,12 +983,30 @@ void tickLiveHeading() {
   // Eight compass octants. No interpolation or redraw without a NEW sample.
   const int octant = ((int)floorf((rawBearing + 22.5f) / 45.0f)) % 8;
   if (octant == displayedHeading) return;
+  const int previousHeading = displayedHeading;
   displayedHeading = octant;
   if (activeNavigation && activeNavigation->screen == SCREEN_3X3 &&
       (live3x3Data || viewportDisplayActive())) {
-    // Redraw original tiles and their exact colors from their own renderer.
-    // draw3x3Screen() then paints the new cyan arrow as its LAST operation.
-    draw3x3Screen();
+    // Restore only the old arrow's actual 22x22 bounding box. Repaint any
+    // territory tiles under it before drawing the new cyan marker LAST.
+    static constexpr int centerX[8] = {207,272,272,272,207,142,142,142};
+    static constexpr int centerY[8] = {195,195,254,313,313,313,254,195};
+    const int oldX = centerX[previousHeading] - 11;
+    const int oldY = centerY[previousHeading] - 12;
+    gfx->fillRect(oldX, oldY, 22, 22, BG);
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        const int tileX = 17 + col * 130;
+        const int tileY = 84 + row * 118;
+        // Tile raster is x+1..x+118, y+1..y+103.
+        if (oldX >= tileX + 119 || oldX + 22 <= tileX + 1 ||
+            oldY >= tileY + 104 || oldY + 22 <= tileY + 1) continue;
+        const int index = sectorIndexForGridPosition(row * 3 + col);
+        if (viewportDisplayActive()) drawViewportTile(index, tileX, tileY);
+        else draw3x3Tile(index, tileX, tileY);
+      }
+    }
+    drawCenterCourseTriangle(displayedHeading);
   }
 }
 
@@ -1074,21 +1140,19 @@ void draw3x3Screen() {
   // Last draw on the 3x3 HUD: the arrow is always above ALL other UI.
   if (viewportDisplayActive() || live3x3Data || !isHudInitializing())
     drawCenterCourseTriangle(displayedHeading);
+  for (int slot = 0; slot < 9; ++slot) signature3x3[slot] = fingerprint3x3(slot);
+  signature3x3Ready = true;
+  last3x3Live = live3x3Data;
+  last3x3Viewport = viewportDisplayActive();
 }
 
 // G5A41: compact, north-up 5x5. This is purely a second PRESENTATION of the
 // watch's existing 25 geographically keyed cached records. Opening it never
 // triggers BLE, GPS navigation changes, or additional 7x7 lookahead.
-void draw5x5Screen() {
-  gfx->fillScreen(BG);
-  // G5A45.2: Same WDG // HUD header as 3x3. Only the grid view differs.
-  // The status strip, GPS/BLE icons, footer, and legend are shared.
-  drawHeader(viewportDisplayActive() ? "CACHED // TOTALS ONLY" :
-             live3x3Data ? "SECTOR UPLINK // LIVE" : "AWAITING SECTOR UPLINK");
-  gfx->setTextWrap(false);
+void draw5x5Tile(int slot) {
+  const int row = slot / 5, col = slot % 5;
   constexpr int left=22, top=85, pitchX=74, pitchY=69, width=68, height=61;
-  for (int row=0;row<5;++row) for(int col=0;col<5;++col) {
-    const int slot=row*5+col;
+  gfx->setTextWrap(false);
     SectorData data{};
     int32_t tiers[11] = {};
     const bool available=geoCacheRead5x5(slot,&data,nullptr,tiers);
@@ -1107,7 +1171,7 @@ void draw5x5Screen() {
       gfx->setCursor(x+28,y+12); gfx->print("?");
       gfx->setTextSize(1);
       gfx->setCursor(x+11,y+38); gfx->print("UNKNOWN");
-      continue;
+      return;
     }
     int dominant=0;
     for(int tier=1;tier<=10;++tier)
@@ -1133,9 +1197,59 @@ void draw5x5Screen() {
       gfx->fillRect(x+width/2-4,y+height-4,8,2,CYAN_AP);
     }
   }
+
+void draw5x5Screen() {
+  gfx->fillScreen(BG);
+  // Same fixed header/footer and GPS/BLE icons as the 3x3 grid.
+  drawHeader(viewportDisplayActive() ? "CACHED // TOTALS ONLY" :
+             live3x3Data ? "SECTOR UPLINK // LIVE" : "AWAITING SECTOR UPLINK");
+  for (int slot = 0; slot < 25; ++slot) draw5x5Tile(slot);
   drawBottomPaletteGuide();
   drawFooter(viewportDisplayActive() ? "GEOGRAPHIC CACHE // AP TOTALS" :
              live3x3Data ? "SECTOR MATRIX // LIVE" : "AWAITING SECTOR UPLINK");
+  for (int slot = 0; slot < 25; ++slot) signature5x5[slot] = fingerprint5x5(slot);
+  signature5x5Ready = true;
+  last5x5Live = live3x3Data;
+  last5x5Viewport = viewportDisplayActive();
+}
+
+// G5A50.3f: No whole-screen clear when a GEO25/K,E record arrives.
+void refreshCachedGridTiles(const Navigation& navigation) {
+  if (navigation.screen == SCREEN_3X3) {
+    if (!signature3x3Ready || last3x3Live != live3x3Data ||
+        last3x3Viewport != viewportDisplayActive()) {
+      showScreen(navigation);  // An actual presentation/header transition.
+      return;
+    }
+    if (viewportDisplayActive()) return; // Rendered by atomic viewport commits.
+    bool changed = false;
+    for (int row = 0; row < 3; ++row) for (int col = 0; col < 3; ++col) {
+      const int slot = row * 3 + col;
+      const uint64_t signature = fingerprint3x3(slot);
+      if (signature == signature3x3[slot]) continue;
+      draw3x3Tile(sectorIndexForGridPosition(slot), 17 + col * 130, 84 + row * 118);
+      signature3x3[slot] = signature;
+      changed = true;
+    }
+    if (changed) drawCenterCourseTriangle(displayedHeading);
+  } else if (navigation.screen == SCREEN_5X5) {
+    if (!signature5x5Ready || last5x5Live != live3x3Data ||
+        last5x5Viewport != viewportDisplayActive()) {
+      showScreen(navigation);
+      return;
+    }
+    if (viewportDisplayActive()) return;
+    for (int slot = 0; slot < 25; ++slot) {
+      const uint64_t signature = fingerprint5x5(slot);
+      if (signature == signature5x5[slot]) continue;
+      draw5x5Tile(slot);
+      signature5x5[slot] = signature;
+    }
+  } else if (navigation.screen == SCREEN_DETAIL) {
+    // Preserve Sector Intel correctness when its selected sector is refreshed.
+    showScreen(navigation);
+  }
+  // Other screens are unaffected by new AP cache records.
 }
 
 void drawDetailScreen() {

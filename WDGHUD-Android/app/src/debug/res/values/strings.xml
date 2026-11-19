@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Debug-only launcher name. Release keeps WDG HUD. -->
+    <string name="app_name">WDG HUD DEV</string>
+</resources>

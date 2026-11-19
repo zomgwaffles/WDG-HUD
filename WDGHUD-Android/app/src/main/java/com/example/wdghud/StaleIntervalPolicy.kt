@@ -2,8 +2,8 @@ package com.example.wdghud
 
 /** Shared rule for phone freshness and the watch's G5A45.4 setting. */
 internal object StaleIntervalPolicy {
-    const val DEFAULT_MINUTES = 30
-    const val MIN_MINUTES = 1
+    const val DEFAULT_MINUTES = 60
+    const val MIN_MINUTES = 60
     const val MAX_MINUTES = 240
     private const val PREFIX = "CFG:STALE,"
 

@@ -107,12 +107,16 @@ void loop() {
     const bool cacheChanged = consumeGeoCacheScreenUpdate();
     const bool viewportCommitted = consumeViewportUpdate();
     const bool stopped = consumeTickerStop();
-    if (committed || cacheChanged) {
-        if (committed) stopHudTicker(false);
-        // GPS navigation and incremental cached cells refresh BOTH watch grids
-        // and Sector Intel, regardless of the active display mode.
+    if (committed) {
+        stopHudTicker(false);
+        // A newly committed atomic nine-sector snapshot may update the status
+        // and every tile; this is one intentional full presentation update.
         showScreen(navigation);
-        if (committed && navigation.screen == SCREEN_3X3) startHudCompletion();
+        if (navigation.screen == SCREEN_3X3) startHudCompletion();
+    } else if (cacheChanged) {
+        // Geographic cache sectors arrive individually. Repaint only changed
+        // grid cells, keeping the CO5300 panel and header steady.
+        refreshCachedGridTiles(navigation);
     } else if (viewportCommitted) {
         // Geographic totals are atomic and need one redraw, never fake scan progress.
         if (navigation.screen == SCREEN_3X3 || navigation.screen == SCREEN_5X5 ||

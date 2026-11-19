@@ -2,6 +2,8 @@
 #include "Navigation.h"
 void initializeDisplay();
 void showScreen(const Navigation& navigation);
+// Partial tile repaint for new GPS-centered cache records; no full-screen clear.
+void refreshCachedGridTiles(const Navigation& navigation);
 // Pairing PIN shown only on the physical watch during initial BLE bonding.
 void drawBlePairingCode(uint32_t code);
 

@@ -28,7 +28,7 @@ internal class SectorFiveByFivePrefetch(private val context: Context) {
     // G5A49.4c: production prefetch uses the same canonical sector windows
     // as GPS, cached sector navigation and WDGWars query points.
     private val staging = SectorPreloadCache(SectorWindowPlanner(
-        ttlMs = 30L * 60L * 1000L,
+        ttlMs = HourlyRefreshPolicy.TTL_MS,
         dynamicTtlMs = { StaleIntervalSettings.ttlMs(context) }
     ), ::validDetail)
     private val coordinator = SectorApiPreloadCoordinator(staging, WdgWarsGrid::queryPoint)
@@ -170,6 +170,7 @@ internal class SectorFiveByFivePrefetch(private val context: Context) {
         val browser = WebView(activity)
         webView = browser
         webViewHost = host
+        browser.settings.userAgentString = PortalHttpPolicy.webUserAgent(browser.settings.userAgentString)
         browser.settings.javaScriptEnabled = true
         browser.settings.domStorageEnabled = true
         browser.addJavascriptInterface(object {
@@ -182,6 +183,12 @@ internal class SectorFiveByFivePrefetch(private val context: Context) {
                     clearRequestTimeout()
                     val elapsedMs = SystemClock.elapsedRealtime() - requestStartedAtMs
                     Log.i("WDGHUD_PREFETCH", "RESPONSE sector=${request.id} seq=$sequence attempt=$attemptNumber elapsedMs=$elapsedMs error=${error ?: "none"}")
+                    if (error?.contains("WDGHUD_429:") == true) {
+                        PortalHttpPolicy.record429(error.orEmpty().substringAfter("WDGHUD_429:").trim())
+                        Log.w("WDGHUD_PREFETCH", "Portal HTTP 429; honoring Retry-After")
+                        finish(cancel = true) // preserve all previously validated sectors
+                        return@post
+                    }
                     if (error != null || response == null) {
                         failAttempt(browser, request, error ?: "empty response")
                         return@post
@@ -239,6 +246,8 @@ internal class SectorFiveByFivePrefetch(private val context: Context) {
 
     private fun fetchNext(browser: WebView) {
         if (!running || webView !== browser || pending != null) return
+        // A server 429 pauses the entire portal client; keep all validated records.
+        if (PortalHttpPolicy.isLimited()) { finish(cancel = true); return }
         var request = coordinator.next(SystemClock.elapsedRealtime())
         while (request != null && !SectorUnavailableBackoff.canRetry(request.id)) {
             // Do not request a known-unavailable (e.g. water) sector again on
@@ -276,6 +285,8 @@ internal class SectorFiveByFivePrefetch(private val context: Context) {
               headers: {'Accept': 'application/json'},
               signal: controller.signal
             });
+            if (response.status === 429)
+              throw Error('WDGHUD_429:' + (response.headers.get('Retry-After') || ''));
             if (!response.ok || !(response.headers.get('content-type') || '').includes('json'))
               throw Error('HTTP ' + response.status + ' (check WDGWars sign-in)');
             const data = await response.json();

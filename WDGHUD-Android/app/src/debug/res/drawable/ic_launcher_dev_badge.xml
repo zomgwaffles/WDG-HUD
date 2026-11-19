@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only neon DEV ribbon; 108x108 Android adaptive-icon foreground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#07151C"
+          android:pathData="M35,62h38a5,5 0,0 1,5 5v8a5,5 0,0 1,-5 5h-38a5,5 0,0 1,-5 -5v-8a5,5 0,0 1,5 -5z" />
+    <path android:fillColor="#00000000"
+          android:strokeColor="#B5FF38" android:strokeWidth="1.5"
+          android:pathData="M35,62.8h38a4.2,4.2 0,0 1,4.2 4.2v8a4.2,4.2 0,0 1,-4.2 4.2h-38a4.2,4.2 0,0 1,-4.2 -4.2v-8a4.2,4.2 0,0 1,4.2 -4.2z" />
+    <path android:fillColor="#B5FF38"
+          android:pathData="M37.0,66.0h8.0v1.65h-8.0z M37.0,67.7h2.0v1.65h-2.0z M45.0,67.7h2.0v1.65h-2.0z M37.0,69.4h2.0v1.65h-2.0z M45.0,69.4h2.0v1.65h-2.0z M37.0,71.1h2.0v1.65h-2.0z M45.0,71.1h2.0v1.65h-2.0z M37.0,72.8h2.0v1.65h-2.0z M45.0,72.8h2.0v1.65h-2.0z M37.0,74.5h2.0v1.65h-2.0z M45.0,74.5h2.0v1.65h-2.0z M37.0,76.2h8.0v1.65h-8.0z M49.0,66.0h10.0v1.65h-10.0z M49.0,67.7h2.0v1.65h-2.0z M49.0,69.4h2.0v1.65h-2.0z M49.0,71.1h8.0v1.65h-8.0z M49.0,72.8h2.0v1.65h-2.0z M49.0,74.5h2.0v1.65h-2.0z M49.0,76.2h10.0v1.65h-10.0z M61.0,66.0h2.0v1.65h-2.0z M69.0,66.0h2.0v1.65h-2.0z M61.0,67.7h2.0v1.65h-2.0z M69.0,67.7h2.0v1.65h-2.0z M61.0,69.4h2.0v1.65h-2.0z M69.0,69.4h2.0v1.65h-2.0z M61.0,71.1h2.0v1.65h-2.0z M69.0,71.1h2.0v1.65h-2.0z M61.0,72.8h2.0v1.65h-2.0z M69.0,72.8h2.0v1.65h-2.0z M63.0,74.5h2.0v1.65h-2.0z M67.0,74.5h2.0v1.65h-2.0z M65.0,76.2h2.0v1.65h-2.0z" />
+</vector>

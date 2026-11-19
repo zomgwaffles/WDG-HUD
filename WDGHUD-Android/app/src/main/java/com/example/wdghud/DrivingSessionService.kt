@@ -337,6 +337,10 @@ class DrivingSessionService : Service() {
             "requestEligible=${targets.size} unavailableCoolingDown=${25 - actualFresh - targets.size} " +
             "visibleMissing=${targets.count { it in visibleKeys }}")
         if (targets.isEmpty()) return
+        if (PortalHttpPolicy.isLimited()) {
+            nextLookaheadAtMs = clock + PortalHttpPolicy.remainingMs().coerceAtLeast(30_000L)
+            return
+        }
         // A session can be established in the Activity's authenticated WebView.
         // CookieManager shares those cookies with this background service.
         val cookies = try { CookieManager.getInstance().getCookie("https://wdgwars.pl/") }
@@ -355,7 +359,8 @@ class DrivingSessionService : Service() {
         nextLookaheadAtMs = clock + 30_000L // bounded retry even on errors
         lookaheadJob = lookaheadExecutor.submit {
             for (id in targets) {
-                if (Thread.currentThread().isInterrupted || generation != lookaheadGeneration) break
+                if (Thread.currentThread().isInterrupted || generation != lookaheadGeneration ||
+                    PortalHttpPolicy.isLimited()) break
                 val (lat, lon) = WdgWarsGrid.queryPoint(id)
                 var connection: HttpURLConnection? = null
                 try {
@@ -367,9 +372,10 @@ class DrivingSessionService : Service() {
                     connection.requestMethod = "GET"
                     connection.setRequestProperty("Cookie", cookies)
                     connection.setRequestProperty("Accept", "application/json")
-                    connection.setRequestProperty("User-Agent", webUserAgent)
+                    // Match the authenticated WebView while identifying our separate product.
+                    connection.setRequestProperty("User-Agent", PortalHttpPolicy.webUserAgent(webUserAgent))
                     connection.setRequestProperty("Referer", "https://wdgwars.pl/")
-                    val status = connection.responseCode
+                    val status = PortalHttpPolicy.responseCode(connection)
                     if (status == 404 || status == 204) {
                         main.post {
                             SectorUnavailableBackoff.unavailable(id)
@@ -677,10 +683,16 @@ class DrivingSessionService : Service() {
             operatorProfilePackets = listOf("PROFILE,ERR")
             return
         }
+        OperatorProfileSnapshotStore.loadFresh(this, key)?.let { cached ->
+            resetOperatorProfileTransfer()
+            operatorProfilePackets = cached
+            return
+        }
         operatorProfileFetching = true
         operatorProfileExecutor.execute {
             var connection: HttpURLConnection? = null
             var packets = listOf("PROFILE,ERR")
+            var verifiedPackets: List<String>? = null
             try {
                 connection = URL("https://wdgwars.pl/api/me").openConnection() as HttpURLConnection
                 connection.connectTimeout = 10000
@@ -688,9 +700,9 @@ class DrivingSessionService : Service() {
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("X-API-Key", key)
                 connection.setRequestProperty("Accept", "application/json")
-                require(connection.responseCode == 200 &&
+                require(PortalHttpPolicy.responseCode(connection) == 200 &&
                     connection.contentType.orEmpty().contains("json", ignoreCase = true)) {
-                    "HTTP ${connection.responseCode} or invalid content type"
+                    "HTTP ${PortalHttpPolicy.responseCode(connection)} or invalid content type"
                 }
                 val data = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                 fun count(field: String): Long = data.optLong(field, -1L).also {
@@ -729,6 +741,7 @@ class DrivingSessionService : Service() {
                 profileData.add("PROFILE,E") // Commit only after every chunk is ACKed.
                 require(profileData.all { it.toByteArray(Charsets.UTF_8).size <= 61 })
                 packets = listOf(ownerPacket) + profileData
+                verifiedPackets = packets
                 log("G5A49.4d /api/me owner/profile fetched")
             } catch (e: Exception) {
                 log("G5A19 profile refresh failed: ${e.javaClass.simpleName}: ${e.message}")
@@ -737,12 +750,17 @@ class DrivingSessionService : Service() {
             }
             main.post {
                 operatorProfileFetching = false
-                if (!activityVisible && !accountChangePending() &&
-                    readApiKey() == key && watchAccountCapable && gatt != null && mtu >= 64 &&
-                    packets.firstOrNull()?.startsWith("OWNER,") == true) {
-                    resetOperatorProfileTransfer()
-                    operatorProfileAccountKey = key
-                    operatorProfilePackets = packets
+                if (!accountChangePending() && readApiKey() == key) {
+                    // Successful HTTP data survives foreground/background handoff.
+                    verifiedPackets?.let {
+                        OperatorProfileSnapshotStore.saveVerified(this@DrivingSessionService, key, it)
+                    }
+                    if (!activityVisible && watchAccountCapable && gatt != null && mtu >= 64 &&
+                        packets.firstOrNull()?.startsWith("OWNER,") == true) {
+                        resetOperatorProfileTransfer()
+                        operatorProfileAccountKey = key
+                        operatorProfilePackets = packets
+                    }
                 }
             }
         }
@@ -1110,6 +1128,7 @@ class DrivingSessionService : Service() {
         if (send("PROG,$capped")) { lastProgress = capped; lastProgressAt = now() }
     }
 
+    private var lastOwnershipRefreshCheckMs = -30_000L
     private val pulse = object : Runnable {
         override fun run() {
             if (!active) return
@@ -1132,6 +1151,21 @@ class DrivingSessionService : Service() {
                 // The tracker also runs on every fresh GPS callback.
                 freshGps()?.let { fix ->
                     onGpsSector(anchorRegistry.locate(fix.latitude, fix.longitude))
+                }
+                // G5A50.4c: refresh official gang ownership independent of AP caching.
+                if (now() - lastOwnershipRefreshCheckMs >= 30_000L) {
+                    lastOwnershipRefreshCheckMs = now()
+                    freshGps()?.let { fix ->
+                        TerritoryOwnershipRefresh.requestIfDue(
+                            this@DrivingSessionService, readApiKey(), fix.latitude, fix.longitude
+                        ) { changed ->
+                            if (active && !activityVisible && changed > 0) {
+                                territoryForCache = TerritoryCacheStore.load(this@DrivingSessionService)
+                                geoWarmPending = true // also resend AP-identical sectors with new gang/color
+                                log("G5A50.4c WATCH_METADATA_REFRESH changed=$changed")
+                            }
+                        }
+                    }
                 }
                 driveGeo()
                 tickLookahead()
@@ -1340,8 +1374,8 @@ class DrivingSessionService : Service() {
                 conn.instanceFollowRedirects = false
                 conn.setRequestProperty("Accept", "application/json")
                 conn.setRequestProperty("X-API-Key", key)
-                if (conn.responseCode != 200 || !conn.contentType.orEmpty().contains("json", true))
-                    throw IllegalStateException("Territory API HTTP ${conn.responseCode}")
+                if (PortalHttpPolicy.responseCode(conn) != 200 || !conn.contentType.orEmpty().contains("json", true))
+                    throw IllegalStateException("Territory API HTTP ${PortalHttpPolicy.responseCode(conn)}")
                 val nearby = mutableListOf<Territory>()
                 var ok = false
                 conn.inputStream.bufferedReader().use { input ->
@@ -1426,9 +1460,13 @@ class DrivingSessionService : Service() {
         // Same-origin JS fetch is essential: saved API key CANNOT authenticate /api/cell-detail.
         val browser = WebView(this)
         page = browser
+        browser.settings.userAgentString = PortalHttpPolicy.webUserAgent(browser.settings.userAgentString)
         browser.settings.javaScriptEnabled = true
         browser.settings.domStorageEnabled = true
         browser.addJavascriptInterface(object {
+            @JavascriptInterface fun rateLimited(retryAfter: String) {
+                PortalHttpPolicy.record429(retryAfter)
+            }
             @JavascriptInterface fun progressStep(done: Int, total: Int) {
                 // API detail fetch progress intentionally does not affect PROG.
             }
@@ -1532,12 +1570,19 @@ class DrivingSessionService : Service() {
                         try{
                             const r=await fetch('/api/cell-detail?lat='+encodeURIComponent(lat)+'&lng='+encodeURIComponent(lng),
                                 {credentials:'same-origin',headers:{'Accept':'application/json'}});
+                            if(r.status === 429) {
+                                WDGHudResult.rateLimited(r.headers.get('Retry-After') || '');
+                                throw Error('WDGHUD_429');
+                            }
                             if(!r.ok || !(r.headers.get('content-type')||'').includes('json'))
                                 throw Error('HTTP '+r.status+'; sign in via WDG HUD');
                             const d=await r.json();
                             if(!d.ok || !Array.isArray(d.levels)) throw Error('Missing AP levels');
                             results.push({index:i,total:d.total,levels:d.levels});
-                        }catch(e){results.push({index:i,error:String(e)});}
+                        }catch(e){
+                            results.push({index:i,error:String(e)});
+                            if(String(e).includes('WDGHUD_429')) break;
+                        }
                         finally{WDGHudResult.progressStep(i+1,targets.length);}
                     }
                     WDGHudResult.report(JSON.stringify({results:results}));
