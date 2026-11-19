@@ -74,28 +74,36 @@ void pollTouch(Navigation& navigation) {
   const bool tap = absDx < 25 && absDy < 25 && duration < 600;
 
   // Visualizer subpage uses the same accepted gear to return to SETTINGS.
+  // G5A50.5e: touch geometry follows the approved OFF/SOLID/RAINBOW raster.
   if (navigation.screen == SCREEN_VISUALIZER_SETTINGS) {
     if ((absDy > 60 && absDy > absDx * 3 / 2 && dy > 0) ||
         (tap && startX >= 177 && startX < 235 &&
          startY >= 421 && startY < 476)) {
       navigation.screen = SCREEN_SETTINGS;
       changed = true;
-    } else if (tap && startX >= 50 && startX < 360 &&
-               startY >= 105 && startY < 149) {
-      toggleVisualizerEnabled();
+    } else if (tap && startY >= 149 && startY < 200) {
+      if (startX >= 43 && startX < 195) {
+        // OFF button: tapping the already-active choice does nothing.
+        if (isVisualizerEnabled()) toggleVisualizerEnabled();
+      } else if (startX >= 215 && startX < 367) {
+        if (!isVisualizerEnabled()) toggleVisualizerEnabled();
+      } else return;
       lastActionAt = now;
       return;
-    } else if (tap && startX >= 50 && startX < 360 &&
-               startY >= 166 && startY < 210) {
-      toggleVisualizerColorMode();
+    } else if (tap && isVisualizerEnabled() &&
+               startY >= 263 && startY < 314) {
+      if (startX >= 43 && startX < 195) {
+        if (isVisualizerRainbowMode()) toggleVisualizerColorMode();
+      } else if (startX >= 215 && startX < 367) {
+        if (!isVisualizerRainbowMode()) toggleVisualizerColorMode();
+      } else return;
       lastActionAt = now;
       return;
-    } else if (tap) {
+    } else if (tap && isVisualizerEnabled() && !isVisualizerRainbowMode() &&
+               startY >= 367 && startY < 409) {
       for (int i = 0; i < 8; ++i) {
-        const int colorX = 22 + (i % 4) * 95;
-        const int colorY = 258 + (i / 4) * 68;
-        if (startX >= colorX && startX < colorX + 81 &&
-            startY >= colorY && startY < colorY + 39) {
+        const int x = 40 + i * 42;
+        if (startX >= x - 4 && startX < x + 38) {
           selectVisualizerPaletteColor(static_cast<uint8_t>(i));
           lastActionAt = now;
           return;
@@ -105,8 +113,7 @@ void pollTouch(Navigation& navigation) {
     } else return;
   } else if (navigation.screen == SCREEN_TEAM) {
     // Single GANG information screen; no roster subpage or paging.
-    if ((tap && startX < 230 && startY >= 418) ||
-        (absDy > 60 && absDy > absDx * 3 / 2 && dy > 0)) {
+    if (tap || (absDy > 60 && absDy > absDx * 3 / 2 && dy > 0)) {
       navigation.screen = SCREEN_CARD;
       changed = true;
     } else return;
@@ -116,24 +123,20 @@ void pollTouch(Navigation& navigation) {
          startY >= 421 && startY < 476)) {
       navigation.screen = SCREEN_CARD;
       changed = true;
-    } else if (tap && startX >= 106 && startX < 304 &&
-               startY >= 381 && startY < 417) {
+    } else if (tap && startX >= 42 && startX < 368 &&
+               startY >= 348 && startY < 403) {
       navigation.screen = SCREEN_VISUALIZER_SETTINGS;
       changed = true;
-    } else if (tap && startY >= 148 && startY < 200 &&
+    } else if (tap && startY >= 148 && startY < 196 &&
                startX >= 26 && startX < 384) {
       const int level = startX < 145 ? 0 : startX < 265 ? 1 : 2;
       setSettingsBrightnessLevel(static_cast<uint8_t>(level));
       lastActionAt = now;
       return;
-    } else if (tap && startY >= 276 && startY < 325 &&
-               startX >= 22 && startX < 388) {
-      int delta = 0;
-      if (startX < 88) delta = -5;
-      else if (startX >= 94 && startX < 155) delta = -1;
-      else if (startX >= 257 && startX < 318) delta = +1;
-      else if (startX >= 324) delta = +5;
-      if (delta) adjustStaleIntervalMinutes(delta);
+    } else if (tap && startY >= 282 && startY < 330 &&
+               startX >= 26 && startX < 384) {
+      const uint16_t minutes = startX < 145 ? 30 : startX < 265 ? 60 : 240;
+      selectStaleIntervalMinutes(minutes);
       lastActionAt = now;
       return;
     } else {

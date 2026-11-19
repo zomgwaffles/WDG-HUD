@@ -57,9 +57,11 @@ int sectorIndexForGridPosition(int slot);
 // G5A45.4: three brightness steps; configurable AP stale age (minutes).
 void setSettingsBrightnessLevel(uint8_t level);
 uint16_t getStaleIntervalMinutes();
-void adjustStaleIntervalMinutes(int deltaMinutes);
+void selectStaleIntervalMinutes(uint16_t minutes);
 
 // G5A36: persistent microphone visualizer preferences on a dedicated Settings page.
+bool isVisualizerEnabled();
+bool isVisualizerRainbowMode();
 void toggleVisualizerEnabled();
 void toggleVisualizerColorMode();
 void selectVisualizerPaletteColor(uint8_t index);

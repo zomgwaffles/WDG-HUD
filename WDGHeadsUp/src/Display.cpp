@@ -180,8 +180,6 @@ uint8_t brightnessLevel = 1;  // LOW=0, MED=1, HIGH=2.
 uint8_t brightnessRaw = kBrightnessSteps[1];
 uint8_t savedBrightnessRaw = kBrightnessSteps[1];
 constexpr uint16_t kStaleDefaultMinutes = 60;
-constexpr uint16_t kStaleMinMinutes = 60;
-constexpr uint16_t kStaleMaxMinutes = 240;
 uint16_t staleIntervalMinutes = kStaleDefaultMinutes;
 
 // G5A36: colors are fixed RGB565 values, matching the limited HUD palette.
@@ -266,7 +264,7 @@ void loadStaleInterval() {
   if (!prefs.begin("wdghud", true)) return;
   const uint16_t saved = prefs.getUShort("staleMinutes", kStaleDefaultMinutes);
   prefs.end();
-  staleIntervalMinutes = saved >= kStaleMinMinutes && saved <= kStaleMaxMinutes
+  staleIntervalMinutes = (saved == 30 || saved == 60 || saved == 240)
       ? saved : kStaleDefaultMinutes;
 }
 }
@@ -1657,8 +1655,6 @@ static void drawTeamScreen() {
       gfx->setCursor(324-(int)strlen(number)*12,item.y);gfx->print(number);
     }
   }
-  gfx->setTextSize(2);gfx->setTextColor(CYAN_AP);
-  gfx->setCursor(48,444);gfx->print("< BACK");
   drawSecondaryCircuitFrame();drawOperatorClock();drawOperatorBattery();
 }
 static void drawMembersScreen() {
@@ -1756,38 +1752,41 @@ void setTeamFetchFailed() {
 // Settings reuses the EXACT accepted G5A27 gear for returning to OPERATOR.
 // Only the changed brightness/stale controls repaint; no full-screen flash.
 // G5A45.4: compact SETTINGS; no DEFAULT button, no continuous slider.
+// G5A50.5d: one shared preset renderer for the approved Settings buttons.
+// Native raster geometry is used on the 410x502 CO5300 display.
+static void drawSettingsPreset(int x, int y, const char* text, bool selected) {
+  constexpr int kWidth = 118, kHeight = 48, kRadius = 7;
+  // Solid filled selection; neon-cyan 3px outline on unselected options.
+  gfx->fillRoundRect(x, y, kWidth, kHeight, kRadius, CYAN_AP);
+  if (!selected) {
+    gfx->fillRoundRect(x + 3, y + 3, kWidth - 6, kHeight - 6,
+                       kRadius - 2, BG);
+  } else {
+    gfx->drawRoundRect(x + 1, y + 1, kWidth - 2, kHeight - 2,
+                       kRadius - 1, WHITE);
+  }
+  gfx->setTextWrap(false);
+  gfx->setTextSize(2);
+  gfx->setTextColor(selected ? BG : WHITE);
+  gfx->setCursor(x + (kWidth - static_cast<int>(strlen(text)) * 12) / 2,
+                 y + 16);
+  gfx->print(text);
+}
+
 void drawBrightnessChoices() {
   constexpr int bx[3] = {26, 146, 266};
   constexpr const char* names[3] = {"LOW", "MED", "HIGH"};
   for (uint8_t i = 0; i < 3; ++i) {
-    const int x = bx[i];
-    const bool selected = brightnessLevel == i;
-    gfx->fillRect(x, 148, 118, 48, BG);
-    gfx->drawRect(x, 148, 118, 48, selected ? CYAN_AP : GREY);
-    if (selected) gfx->fillRect(x+4, 152, 110, 3, CYAN_AP);
-    gfx->setTextSize(2);
-    gfx->setTextColor(selected ? CYAN_AP : WHITE);
-    gfx->setCursor(x + (118 - static_cast<int>(strlen(names[i]))*12)/2, 165);
-    gfx->print(names[i]);
+    drawSettingsPreset(bx[i], 148, names[i], brightnessLevel == i);
   }
 }
+
 void drawStaleChoices() {
-  constexpr int bx[5] = {22, 94, 161, 257, 324};
-  constexpr int widths[5] = {66, 61, 90, 61, 64};
-  constexpr const char* labels[5] = {"-5", "-1", nullptr, "+1", "+5"};
-  char minutes[12];
-  snprintf(minutes, sizeof(minutes), "%u MIN", static_cast<unsigned>(staleIntervalMinutes));
-  for (uint8_t i = 0; i < 5; ++i) {
-    const char* label = i == 2 ? minutes : labels[i];
-    const int x = bx[i], width = widths[i];
-    gfx->fillRect(x, 276, width, 48, BG);
-    gfx->drawRect(x, 276, width, 48, i == 2 ? WHITE : CYAN_AP);
-    gfx->setTextColor(i == 2 ? WHITE : CYAN_AP);
-    gfx->setTextSize(2);
-    const int glyph = 12;
-    gfx->setCursor(x + (width-static_cast<int>(strlen(label))*glyph)/2,
-                   293);
-    gfx->print(label);
+  constexpr int bx[3] = {26, 146, 266};
+  constexpr uint16_t values[3] = {30, 60, 240};
+  constexpr const char* names[3] = {"30M", "60M", "240M"};
+  for (uint8_t i = 0; i < 3; ++i) {
+    drawSettingsPreset(bx[i], 282, names[i], staleIntervalMinutes == values[i]);
   }
 }
 void drawSettingsScreen() {
@@ -1796,84 +1795,164 @@ void drawSettingsScreen() {
   constexpr char title[] = "SETTINGS";
   gfx->setTextColor(CYAN_AP);
   gfx->setTextSize(3);
-  gfx->setCursor((410 - (static_cast<int>(sizeof(title))-1)*18)/2, 18);
+  gfx->setCursor((410 - (static_cast<int>(sizeof(title)) - 1) * 18) / 2, 18);
   gfx->print(title);
-  gfx->fillRect(38, 78, 334, 3, 0x05FF);
+  gfx->fillRect(38, 78, 334, 3, CYAN_AP);
 
+  // Approved neon-pink section headings.
+  constexpr uint16_t kSectionMagenta = 0xFA5F;
   gfx->setTextSize(2);
-  gfx->setTextColor(WHITE);
-  gfx->setCursor(145, 113);
+  gfx->setTextColor(kSectionMagenta);
+  gfx->setCursor(46, 112);
   gfx->print("BRIGHTNESS");
   drawBrightnessChoices();
 
-  gfx->setTextColor(WHITE);
-  gfx->setCursor(121, 233);
-  gfx->print("STALE INTERVAL");
+  gfx->setTextColor(kSectionMagenta);
+  gfx->setCursor(46, 240);
+  gfx->print("SECTOR SYNC");
   drawStaleChoices();
-  gfx->setTextColor(GREY);
-  gfx->setTextSize(1);
-  gfx->setCursor(107, 341);
-  gfx->print("AP REFRESH AGE IN MINUTES");
 
-  gfx->drawRect(106, 381, 198, 35, CYAN_AP);
+  // Large, visibly clickable cyan frame, raised above the existing gear.
+  // Fill the dark interior separately for a 4-pixel, rounded outline.
+  gfx->fillRoundRect(42, 348, 326, 55, 9, CYAN_AP);
+  gfx->fillRoundRect(46, 352, 318, 47, 7, PANEL);
+  gfx->fillRect(58, 354, 294, 2, 0x054C); // subtle inset highlight
+  gfx->setTextSize(3);
   gfx->setTextColor(WHITE);
-  gfx->setTextSize(2);
-  gfx->setCursor(119, 392);
-  gfx->print("VISUALIZER >");
+  gfx->setCursor(115, 364);
+  gfx->print("VISUALIZER");
+
+  // Same previously approved 32x32 Settings gear; no geometry changes.
   drawOperatorGearPlaceholder();
 }
-
 // G5A36 visualizer controls: no changes to the approved OPERATOR/brightness layout.
 // Touch regions: enabled y=107..148, mode y=163..208, 4x2 palette y=250/318.
+// G5A50.5e: approved VISUALIZER layout, retaining the native 410x502 look.
+// Selected buttons: black text on cyan. All other labels: fixed HUD colors.
+// Colour is represented by the palette and rainbow graph, not recolored text.
+static void drawVisualizerOption(int x, int y, int width, const char* label,
+                                 bool selected) {
+  constexpr int kHeight = 51;
+  gfx->fillRoundRect(x, y, width, kHeight, 8, CYAN_AP);
+  if (!selected) {
+    gfx->fillRoundRect(x + 3, y + 3, width - 6, kHeight - 6, 6, BG);
+  } else {
+    gfx->drawRoundRect(x + 1, y + 1, width - 2, kHeight - 2, 7, WHITE);
+  }
+  gfx->setTextWrap(false);
+  gfx->setTextSize(2);
+  gfx->setTextColor(selected ? BG : WHITE);
+  gfx->setCursor(x + (width - static_cast<int>(strlen(label)) * 12) / 2,
+                 y + 17);
+  gfx->print(label);
+}
+
+static void drawVisualizerEqualizer(bool rainbow) {
+  constexpr int kBars[15] = {3, 5, 8, 11, 14, 9, 7, 17, 13, 9, 7, 11, 8, 5, 3};
+  constexpr uint16_t kRainbow[7] = {
+      0xF81F, 0xF9A0, 0xFD20, 0xFFE0, 0x07E0, 0x07FF, 0x681F};
+  constexpr int x0 = 96;
+  constexpr int bottom = 382;
+  for (int i = 0; i < 15; ++i) {
+    const uint16_t ink = rainbow ? kRainbow[(i * 7) / 15] : 0x3186;
+    for (int bar = 0; bar < kBars[i]; ++bar) {
+      gfx->fillRect(x0 + i * 15, bottom - bar * 3, 10, 2, ink);
+    }
+  }
+}
+
 void drawVisualizerSettingsScreen() {
   gfx->fillScreen(BG);
   gfx->setTextWrap(false);
-  constexpr char heading[] = "VISUALIZER";
+  constexpr uint16_t kSectionMagenta = 0xFA5F;
+
+  // Retained dark, clean WDG-HUD styling and dot-matrix typography.
+  constexpr char title[] = "VISUALIZER";
   gfx->setTextSize(3);
   gfx->setTextColor(CYAN_AP);
-  gfx->setCursor((410 - (static_cast<int>(sizeof(heading)) - 1) * 18) / 2, 18);
-  gfx->print(heading);
-  gfx->fillRect(38, 78, 334, 3, 0x05FF);
-
-  gfx->drawRect(50, 105, 310, 44, CYAN_AP);
-  gfx->setTextSize(2);
-  gfx->setTextColor(WHITE);
-  gfx->setCursor(77, 120);
-  gfx->print("AUDIO:");
-  gfx->setTextColor(visualizerEnabled ? 0x07E0 : GREY);
-  gfx->setCursor(260, 120);
-  gfx->print(visualizerEnabled ? "ON" : "OFF");
-
-  gfx->drawRect(50, 166, 310, 44, CYAN_AP);
-  gfx->setTextColor(WHITE);
-  gfx->setCursor(77, 181);
-  gfx->print("COLOR:");
-  gfx->setTextColor(CYAN_AP);
-  gfx->setCursor(242, 181);
-  gfx->print(visualizerRainbow ? "RAINBOW" : "SOLID");
-
-  gfx->setTextSize(2);
-  gfx->setTextColor(WHITE);
-  gfx->setCursor(126, 228);
-  gfx->print("SOLID PALETTE");
-  for (int i = 0; i < 8; ++i) {
-    const int x = 22 + (i % 4) * 95;
-    const int y = 258 + (i / 4) * 68;
-    const bool selected = !visualizerRainbow && visualizerColor == i;
-    gfx->drawRect(x, y, 81, 39, selected ? WHITE : GREY);
-    gfx->fillRect(x + 4, y + 4, 73, 19, kVisualizerColors[i]);
-    const char* name = kVisualizerColorNames[i];
-    gfx->setTextSize(1);
-    gfx->setTextColor(selected ? WHITE : GREY);
-    gfx->setCursor(x + (81 - static_cast<int>(strlen(name)) * 6) / 2, y + 28);
-    gfx->print(name);
+  gfx->setCursor((410 - (static_cast<int>(sizeof(title)) - 1) * 18) / 2, 18);
+  gfx->print(title);
+  // Small equalizer marks are static icons, not an audio-preview animation.
+  for (int i = 0; i < 5; ++i) {
+    const int height = 4 + (i % 3) * 3;
+    gfx->fillRect(40 + i * 10, 48 - height, 6, height, CYAN_AP);
+    gfx->fillRect(324 + i * 10, 48 - height, 6, height, CYAN_AP);
   }
-  gfx->setTextSize(1);
-  gfx->setTextColor(GREY);
-  gfx->setCursor(66, 402);
-  gfx->print("TAP A SWATCH FOR SOLID COLOR");
+  gfx->fillRect(38, 78, 334, 3, CYAN_AP);
+
+  // One quiet content frame; no extra decorative panels or glow effects.
+  gfx->drawRoundRect(21, 91, 368, 324, 14, CYAN_AP);
+
+  gfx->setTextSize(2);
+  gfx->setTextColor(kSectionMagenta);
+  gfx->setCursor(43, 111);
+  gfx->print("STATUS");
+  gfx->fillRect(130, 122, 239, 2, kSectionMagenta);
+
+  drawVisualizerOption(43, 149, 152, "OFF", !visualizerEnabled);
+  drawVisualizerOption(215, 149, 152, "ON", visualizerEnabled);
+
+  if (!visualizerEnabled) {
+    // OFF: no MODE, no COLOR controls, and no invisible hit targets.
+    drawVisualizerEqualizer(false);
+    gfx->setTextSize(2);
+    gfx->setTextColor(CYAN_AP);
+    constexpr char state[] = "DISABLED";
+    gfx->setCursor((410 - (static_cast<int>(sizeof(state)) - 1) * 12) / 2,
+                   389);
+    gfx->print(state);
+  } else {
+    gfx->setTextSize(2);
+    gfx->setTextColor(kSectionMagenta);
+    gfx->setCursor(43, 224);
+    gfx->print("MODE");
+    gfx->fillRect(115, 235, 254, 2, kSectionMagenta);
+
+    drawVisualizerOption(43, 263, 152, "SOLID", !visualizerRainbow);
+    drawVisualizerOption(215, 263, 152, "RAINBOW", visualizerRainbow);
+
+    if (visualizerRainbow) {
+      // Rainbow: static spectrum graphic; text stays cyan/white/black.
+      // No palette is shown or touchable while rainbow mode is active.
+      drawVisualizerEqualizer(true);
+      gfx->setTextSize(1);
+      gfx->setTextColor(CYAN_AP);
+      constexpr char legend[] = "RAINBOW (CYCLING)";
+      gfx->setCursor((410 - (static_cast<int>(sizeof(legend)) - 1) * 6) / 2,
+                     396);
+      gfx->print(legend);
+    } else {
+      gfx->setTextSize(2);
+      gfx->setTextColor(kSectionMagenta);
+      gfx->setCursor(43, 335);
+      gfx->print("COLOR");
+      gfx->fillRect(114, 346, 255, 2, kSectionMagenta);
+
+      // Draw every solid-color swatch first.
+      for (uint8_t i = 0; i < 8; ++i) {
+        const int x = 40 + static_cast<int>(i) * 42;
+        gfx->fillRoundRect(x, 371, 34, 34, 5, kVisualizerColors[i]);
+      }
+
+      // Then draw the active selection as a conspicuous two-tone frame.
+      // White outer rim, cyan band, black separator: visible even for CYAN.
+      if (visualizerColor < 8) {
+        const int x = 40 + static_cast<int>(visualizerColor) * 42;
+        gfx->fillRoundRect(x - 6, 365, 46, 46, 8, WHITE);
+        gfx->fillRoundRect(x - 4, 367, 42, 42, 7, CYAN_AP);
+        gfx->fillRoundRect(x - 2, 369, 38, 38, 6, BG);
+        gfx->fillRoundRect(x, 371, 34, 34, 5,
+                           kVisualizerColors[visualizerColor]);
+      }
+    }
+  }
+
+  // Original G5A27 gear, same geometry and touch target as before.
   drawOperatorGearPlaceholder();
 }
+
+bool isVisualizerEnabled() { return visualizerEnabled; }
+bool isVisualizerRainbowMode() { return visualizerRainbow; }
 
 void toggleVisualizerEnabled() {
   visualizerEnabled = !visualizerEnabled;
@@ -1907,24 +1986,21 @@ void setSettingsBrightnessLevel(uint8_t level) {
 }
 
 uint16_t getStaleIntervalMinutes() { return staleIntervalMinutes; }
-void adjustStaleIntervalMinutes(int deltaMinutes) {
-  int next = static_cast<int>(staleIntervalMinutes) + deltaMinutes;
-  if (next < kStaleMinMinutes) next = kStaleMinMinutes;
-  if (next > kStaleMaxMinutes) next = kStaleMaxMinutes;
-  if (next == staleIntervalMinutes) return;
-  staleIntervalMinutes = static_cast<uint16_t>(next);
+void selectStaleIntervalMinutes(uint16_t minutes) {
+  if ((minutes != 30 && minutes != 60 && minutes != 240) ||
+      minutes == staleIntervalMinutes) return;
+  staleIntervalMinutes = minutes;
   Preferences prefs;
   if (prefs.begin("wdghud", false)) {
     prefs.putUShort("staleMinutes", staleIntervalMinutes);
     prefs.end();
   }
-  // Existing authenticated phone connection receives this through notifications;
-  // a new connection receives it again after CAPS? to recover missed updates.
+  // AP detail freshness only. Ownership/profile use separate hourly TTLs.
+  // Send through the already authenticated BLE settings channel.
   notifyStaleIntervalChanged(staleIntervalMinutes);
   if (activeNavigation && activeNavigation->screen == SCREEN_SETTINGS)
     drawStaleChoices();
 }
-
 void setOperatorProfile(const char* username, const char* gang,
                         uint32_t wifi, uint32_t ble, uint32_t total, uint32_t badges) {
   if(operatorProfile.valid && strcmp(operatorProfile.username,username)!=0) {
