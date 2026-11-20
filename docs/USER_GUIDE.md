@@ -1,60 +1,136 @@
 # User guide — WDG // HUD
 
-## What you are looking at
+> **Documentation baseline:** G5A50.5f, Git commit [`662f93c`](https://github.com/zomgwaffles/WDG-HUD/commit/662f93c) (2026-11-19). This is a **pre-release** user guide, not a declaration that public v1.0 acceptance is complete. See [Release checklist](RELEASE_CHECKLIST.md).
 
-The watch is a **snapshot HUD**, not a stand-alone scanner or WDGWars internet client. The Android companion obtains phone GPS and WDGWars data, maintains persistent history, and securely sends validated updates to the watch. Displayed AP counts are **WDGWars-reported sector intelligence**, not a claim that the watch independently detected radio access points.
+WDG // HUD is an **offline-first watch display** for [WDGWars](https://wdgwars.pl/). It consists of the **Waveshare ESP32-S3 Touch AMOLED 2.06-inch watch** and an **Android companion**. The phone provides GPS, WDGWars access, sector caching, and authenticated Bluetooth Low Energy (BLE) synchronization. The watch displays the last validated information even during temporary BLE, GPS, or network interruptions.
 
-The grid remains **north-up**. The cyan direction triangle uses valid phone GPS course-over-ground information; if GPS bearing is unavailable, the firmware should not fabricate a heading.
+**Important:** The watch does **not** perform Wi-Fi/Bluetooth wardriving by itself, fetch WDGWars data directly, or claim to detect the APs shown on its grid. AP totals and tiers come from WDGWars sector data supplied by Android.
 
-## Android companion
+## 1. Start here
 
-| Panel/control | What it does |
+1. [Install the watch firmware and Android companion](INSTALLATION.md). Both are required for live updates.
+2. In Android **WDGWARS ACCESS**, enter and verify your own WDGWars API key. Sign in through the WDGWars website dialog if the authenticated sector-detail session requires it.
+3. Enable phone Bluetooth and location services. Pair with the BLE device **WDG HUD** using the temporary six-digit code shown on the watch in the Android **system pairing dialog**.
+4. Confirm Android **DRIVING SESSION → SESSION ACTIVE** and that the watch receives GPS and sector updates. Successful BLE connection normally starts the driving session.
+5. After the first validated sync, the watch can display retained data offline. Unknown sectors may remain marked `?` until fetched successfully.
+
+Do not force-stop the companion during a drive; Android's foreground service handles background GPS/BLE when the Activity is not visible.
+
+## 2. Watch interaction map
+
+![Approved WDG // HUD watch interaction map: all screens, gestures, controls, and BOOT behavior](images/watch-interaction-map.png)
+
+[Full-resolution one-page PDF](images/watch-interaction-map.pdf)
+
+| Screen | Open / action | Return |
+| --- | --- | --- |
+| **3×3 HUD** | Default; **tap any sector** → SECTOR INTEL; **swipe left** → 5×5; **swipe up** → OPERATOR | **Swipe down** keeps/returns to 3×3 |
+| **5×5 CACHE** | From 3×3 swipe left; **tap any sector** → SECTOR INTEL; **swipe up** → OPERATOR | **Swipe right** → 3×3; **swipe down** → 3×3 |
+| **SECTOR INTEL** | Tap any square in 3×3 or 5×5. Horizontal swipes enter the detail-page handler; the current 10-tier view fits on one page. | **Tap** or **swipe down** → originating 3×3/5×5; **swipe up** → OPERATOR |
+| **OPERATOR** | **Swipe up** from a grid. **Tap gang name** → GANG; **tap gear** → SETTINGS. | **Tap elsewhere** or **swipe down** → 3×3 |
+| **GANG** | **Tap gang name** on OPERATOR; rank, members, Wi-Fi, BLE, total, credits | **Tap anywhere** or **swipe down** → OPERATOR; no BACK button |
+| **SETTINGS** | **Tap LOW/MED/HIGH**, **30M/60M/240M**, or the **VISUALIZER** button | **Tap bottom gear** or **swipe down** → OPERATOR |
+| **VISUALIZER** | **OFF/ON**; when ON choose **SOLID/RAINBOW**; in SOLID tap one of **8 swatches** | **Tap bottom gear** or **swipe down** → SETTINGS |
+| **Physical BOOT** | Short press and release (60–1200 ms) **while disconnected** retries BLE advertising. While connected: no action. | Not a reset/unpair button |
+| **Pairing PIN overlay** | Watch shows six-digit code for Android **system Bluetooth pairing** dialog | Watch touch navigation is temporarily disabled until pairing completes |
+
+There is no separate user-facing **MEMBERS** screen. Use touch controls only when safely stopped, not while driving.
+
+## 3. 3×3 driving HUD and 5×5 cache inspection
+
+### 3×3 driving HUD
+
+- The grid is **north-up**: rows represent surrounding geographic sectors, not the direction the vehicle faces.
+- The **middle square** represents the phone's GPS-selected sector. Each square's **large white number** is its AP total.
+- `T2:350`, for example, means **350 APs in hardness tier 2**. A populated 3×3 square displays **up to three tiers with the greatest AP counts**. The tiny upper-right marker identifies the **highest hardness tier present**, which need not be the most common.
+- The **square outline** represents WDGWars gang ownership using the supplied gang color. A neutral grey or unknown square is not proof of an unclaimed or zero-AP sector.
+- The **cyan direction triangle** indicates the most recently accepted GPS **course over ground**. It is not a magnetic compass and may not update while stationary.
+- Tap a square to open **SECTOR INTEL** for that location.
+
+The grid can also show **CACHED // TOTALS ONLY** when geographic totals are available but the associated tier/ownership detail is not. Do not interpret that fallback as a complete live sector-detail scan.
+
+### 5×5 cache inspection
+
+- Swipe **left** from 3×3 to display the **same GPS-centered 25-sector window**.
+- Each populated square displays its **AP total only** in the currently accepted watch layout. The 5×5 view does **not** display tier labels or per-tier counts; tap a sector for SECTOR INTEL.
+- `?` means the sector has **no validated cached record**. A recorded `0` represents a **confirmed zero-AP** sector; neither should be confused with an API error.
+- The center square has a small cyan **notch**. All 25 cells share the same underlying geographic cache as the 3×3 HUD.
+- Opening 5×5 **does not start a new scan**, request a 7×7 window, or change the GPS-selected center. The Android companion independently manages refreshes and its cumulative sector history.
+- Tap a square for **SECTOR INTEL**, or swipe right to return to 3×3.
+
+**Sector geometry:** WDGWars sectors are indexed on a **0.02° latitude × 0.02° longitude** grid. Sector-boundary checks can use saved/calculated coordinates without requesting boundary data from the internet on every GPS fix. Physical east-west dimensions vary with latitude.
+
+## 4. OPERATOR, GANG and SECTOR INTEL
+
+**OPERATOR** is a last-good account snapshot. It displays the operator callsign, optional activity-rank description when available, gang name, profile sync status, and reported Wi-Fi/BLE/total/badges values. Tap the **gang name** to open **GANG**, or the bottom **gear** for SETTINGS. The clock and battery status remain part of the OPERATOR display.
+
+**GANG** is one information screen: gang name/color, rank, member count, Wi-Fi, BLE, total, and credits. **Tap anywhere** to return to OPERATOR. GANG is not a member-roster browser.
+
+**SECTOR INTEL** displays the chosen sector's gang, AP total, maximum recorded level, and populated hardness-tier breakdown. For example, `T1 L01-L10` covers levels 1–10, while `T10 L91+` covers the highest bucket. Tap to return to whichever grid opened the sector.
+
+Values in the illustrations are **examples**, not a capture of a real player's profile, gang, or sector.
+
+## 5. SETTINGS and VISUALIZER
+
+### SETTINGS
+
+| Setting | Choices | Effect |
+| --- | --- | --- |
+| **BRIGHTNESS** | **LOW / MED / HIGH** | Changes watch display brightness; saved across restart |
+| **SECTOR SYNC** | **30M / 60M / 240M** | Sets minimum age for Android **AP-detail refresh eligibility**: 30 minutes, 1 hour, or 4 hours |
+| **VISUALIZER** | Opens subpage | Configures watch microphone visualizer presentation |
+
+**Sector Sync is a freshness threshold, not an automatic network request every N minutes.** Only missing/stale eligible AP-detail records are candidates for refresh when connectivity and the companion's scheduling permit. Failed or interrupted refreshes must not delete a previously validated value. **Gang ownership, GANG information and Operator/profile refresh policies remain separate, with a one-hour minimum**; the watch's 30M option does not lower those limits.
+
+The watch stores the interval and sends an authenticated BLE setting such as `CFG:STALE,30` to a compatible Android companion. The **private RC6** companion supports all three presets; older RC5 installations do not support 30M. Watch-to-Android 30M/60M notification handling was observed in maintainer logs; a full multi-hour expiration test and 240M log proof remain separate validation items.
+
+### VISUALIZER
+
+| State | Display and controls |
 | --- | --- |
-| WATCH UPLINK | BLE connection status, link health, GPS packet statistics and reconnect control when offline |
-| DRIVING SESSION | Shows active/inactive driving-service state; starts automatically on successful watch connection; STOP remains available |
-| SECTOR MATRIX / 3×3 | Displays automatic refresh status and allows a manual 3×3 sync for troubleshooting |
-| GPS TELEMETRY | Phone GPS source, coordinates, speed and last valid bearing |
-| WDGWARS ACCESS | Enter and verify your own API key; launch WDGWars website sign-in for authenticated data requests |
-| OPTIONAL // PUBLIC PROFILE CARD | Save/remove your own public WDGWars SVG card URL; not required for BLE or GPS |
+| **OFF** | Only STATUS **OFF / ON** appears; MODE and COLOR disappear. The screen shows a muted `DISABLED` equalizer indicator. |
+| **ON / SOLID** | Shows STATUS, MODE **SOLID / RAINBOW**, and the color palette. The **selected swatch has a visible white/cyan outline**. |
+| **ON / RAINBOW** | Shows STATUS and MODE. The color palette is **hidden** and a static, multicolored equalizer illustration is shown on the Settings page. |
 
-**First use:** enter and verify the WDGWars API key, log in through the WDGWars website dialog if needed for sector-detail fetching, pair the watch, and verify **SESSION ACTIVE**. The login window should **not** contain older AP-level test buttons.
+Selected buttons use **dark text on a cyan fill**; unselected buttons use **white text on dark backgrounds**. Section headings are magenta. The setting labels do **not** change text color with the selected visualizer color. The watch stores Visualizer ON/OFF, mode, and chosen solid color persistently.
 
-**Background behavior:** When the Android app is minimized, the foreground service owns GPS/BLE; when you return to the app, the Activity becomes the BLE owner. Some Android power-management settings can interrupt an app or service. Force-stopping the app is **not** a supported way to keep the driving session running.
+The equalizer on the **settings page** is an illustrative mode indicator. Actual microphone-driven animation occurs on the watch HUD when enabled and supported by the audio hardware.
 
-## Watch touch navigation
+## 6. What stays visible when offline?
 
-| Screen | Touch action |
+- **Android** maintains persistent, cumulative geographically keyed sector history. Re-entering a previously visited area should reuse saved records before or while any eligible refresh runs.
+- The **watch** restores validated last-good geographic snapshots from nonvolatile storage after restart. Switching 3×3/5×5 views does not clear those records.
+- OPERATOR/GANG data uses **account-scoped last-good storage** and an authenticated account-owner handshake. Cross-account **A → B → A hardware acceptance** is still a release gate; do not describe this as independently field-certified isolation.
+- GPS fixes, phone internet, BLE connection, and remote responses may be temporarily unavailable. The watch should preserve last-good validated data, not replace it with fabricated zeros merely because a refresh failed.
+- A missing sector, a stale-but-valid sector, and a confirmed **zero-AP** sector are different states. The freshness interval determines **when to request**, not **how long data remains visible**.
+
+## 7. Android companion reference
+
+| Panel/control | Purpose |
 | --- | --- |
-| 3×3 driving HUD | Default. Swipe **left** → 5×5; swipe **up** → OPERATOR; tap a sector → Sector Intel |
-| 5×5 inspection | Swipe **right** → 3×3; tap sector → Sector Intel |
-| Sector Intel | Inspect cached per-sector information; navigate back via touch (or swipe through supported detail pages) |
-| OPERATOR | Tap gang name → GANG; tap gear → SETTINGS; navigate back to grid |
-| GANG | Displays gang name, RANK, MEMBERS count, WI-FI, BLE, TOTAL, CREDITS; BACK → OPERATOR |
-| SETTINGS | LOW/MED/HIGH brightness; AP stale-age controls; visualizer settings |
+| **WATCH UPLINK** | Watch BLE state, connection health, GPS packet counts, reconnect controls |
+| **DRIVING SESSION** | Foreground/background driving-session status; normally starts after watch connection; STOP is available |
+| **SECTOR MATRIX / 3×3** | Automatic sector status and background prefetch; the retired manual 3×3 Sync button is not part of the accepted UI |
+| **GPS TELEMETRY** | GPS source, position, speed and accepted course/bearing |
+| **WDGWARS ACCESS** | Your API key verification and website session sign-in |
+| **OPTIONAL // PUBLIC PROFILE CARD** | Optional public SVG card URL for your own account; not an API key |
 
-There is **no separate MEMBERS screen** in the intended touch interface. A 5×5 inspection action does **not** start a second scan or expand the lookahead to 7×7.
+The Android app's login session and private API key serve different functions. Never include the API key, website cookies, pairing PIN, or precise private routes in public bug reports.
 
-## What persists and what refreshes
+## 8. Pairing, reconnection, and troubleshooting
 
-- The current **3×3** grid uses the GPS-selected sector. The **5×5** window inspects nearby historical records around the *same* center.
-- WDGWars reports sector spacing of **0.02° latitude × 0.02° longitude**, aligned to coordinate intersections. The phone can classify a sector crossing from coordinates without an internet query.
-- The active 25-sector window is a view into **cumulative** Android history; returning to a previously visited area should reuse cached data while new information loads.
-- Default AP **stale threshold is 30 minutes**; SETTINGS can change it from 1 to 240 minutes. Staleness determines refresh eligibility, not deletion. A failed refresh must not zero a valid count.
-- The Android companion stores a last successful per-sector update time; the watch stores validated last-good data in nonvolatile flash. GANG information is refreshed about every five minutes while the companion is active, when connectivity permits.
-- First-time unknown, stale-but-valid, and confirmed empty are **different** states.
+| Symptom | Checks / expected behavior |
+| --- | --- |
+| **No watch connection** | Keep phone nearby; ensure Bluetooth/permissions; use Android **RECONNECT WATCH**. When the watch is disconnected, a short watch **BOOT** press can request BLE advertising again. It is not a factory reset or general unpair command. |
+| **Pairing prompt fails** | Use the **Android system prompt** and the watch's current temporary six-digit PIN. Do not enter a hardcoded PIN. |
+| **Connected, no new sectors** | Check **SESSION ACTIVE**, GPS telemetry, WDGWars API-key verification and website login. Cached data can remain visible while new requests are unavailable. |
+| **Unknown `?` sectors** | A record has not yet been validated; do not treat it as zero AP. Prefetch can fill the slot later. |
+| **Wrong arrow direction** | Course over ground is meaningful while moving; it is not a stationary compass heading. |
+| **Saved data disappears after reinstall** | Uninstalling or clearing Android storage is destructive. Prefer compatible **in-place upgrades** for retention testing; do not erase watch flash/NVS to troubleshoot normal sync delays. |
+| **Switching WDGWars accounts** | Account-scoped transfers exist, but full two-account hardware acceptance remains pending. Report any previous-account values with redacted logs; do not clear NVS as a workaround. |
 
-## Pairing and reconnection
+**Driving safety:** Stop the vehicle before using menus, tapping Sector Intel, pairing, entering credentials, or troubleshooting. Use the grid only for brief safe glances.
 
-Watch BLE name: **WDG HUD**. On a new bond, the watch displays a temporary six-digit authentication code. Use the **Android system pairing** prompt, not an in-app hardcoded PIN. Existing bonds should usually reconnect without repeating the code. The firmware is designed to reject unauthenticated command traffic.
+### About the illustrations
 
-If disconnected: keep the phone nearby, verify Bluetooth and app permissions, use the Android **RECONNECT WATCH** control, or make a short BOOT button press on the *disconnected* watch to restart advertising. The BOOT behavior is not a general reset/unpair function.
-
-## Troubleshooting
-
-- **No account data:** verify API key; open WDGWars website login in the companion if authenticated cell-detail requests fail; inspect **API STATUS**. Avoid pasting credentials into screenshots/logs.
-- **BLE connected but no updates:** confirm Android **SESSION ACTIVE**, fresh GPS fix, and BLE link health. A watch may intentionally preserve cached display while new records are unavailable.
-- **Wrong direction:** heading is based on course over ground, not a stationary magnetic compass; test while moving safely.
-- **Unexpected GANG values after switching accounts:** watch GANG NVS is not yet account-scoped; the previous summary may remain until a successful new profile transfer. This is a known pre-v1.0 limitation.
-- **An app reinstall seems to lose history:** uninstalling/clearing data is destructive. Updating over an installed app is safer for migration tests.
-
-**Driving safety:** Only glance at the watch while it is safe to do so. Stop the vehicle before navigating screens, pairing, logging in or troubleshooting.
+The approved interaction map is a **2700 × 2040 digital illustration**, built from actual user-provided watch photographs and the G5A50.5f display/touch code. Data in the graphic are examples or retained photo values, not live account values. It is **not a pixel-identical hardware screenshot**. The visual map and this guide agree on **left from 3×3 → 5×5** and **right from 5×5 → 3×3**. For authoritative geometry, see [Watch display geometry](../WDGHeadsUp/docs/WATCH_DISPLAY_GEOMETRY.md).

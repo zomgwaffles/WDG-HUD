@@ -4,7 +4,7 @@
 
 ## A. Source and reproducibility
 
-- [x] Latest release-audit `main` SHA recorded: `6885e6dfc994b755761e15f2781e9092d1565e85` (G5A49.4d, 2026-11-18 UTC). This records GitHub baseline, not a fresh-checkout build.
+- [x] Documentation-source `main` checkpoint recorded as **`662f93c` (G5A50.5f, 2026-11-19)**; earlier G5A49.4d audit was `6885e6d`. This records a source checkpoint, **not** a fresh-checkout or public-release acceptance build.
 - [ ] Android unit suite and `:app:assembleDebug` pass on a clean checkout.
 - [ ] Watch PlatformIO build and native logic tests pass on a clean checkout.
 - [ ] Fresh firmware flashing and fresh Android install are demonstrated on compatible, independent hardware (not only the maintainer's existing caches and bonds).
@@ -41,6 +41,10 @@
 
 ## E. Documentation and distribution
 
+- [x] Approved user-facing interaction map available as PNG/PDF; source baseline **G5A50.5f** recorded (documentation integration pass, 2026-11-20).
+- [ ] Independently compare the final guide's screen and navigation examples with actual hardware before public v1.0 tag.
+- [ ] Prove RC6 240M setting with explicit phone log and a non-aggressive longer-term refresh/TTL trial; no artificial API flooding.
+
 - [ ] Review README, installation instructions, troubleshooting and user guide on a **fresh checkout** after merging documentation.
 - [ ] Ensure older G4A protocol-design docs are identified as historical (they currently contain superseded 21-sector references).
 - [ ] Choose how to handle third-party contributions, issue reports and responsible security disclosures.
@@ -61,6 +65,8 @@
 | G5A50.1 | Maintainer reported Android unit tests, APK build, merged-manifest review and in-place app upgrade successful; committed on `main` as `fc0a3e2377a53a8d75d63921d525c3d15bd241b6` |
 | G5A50.2 | GPL-3.0-only license committed on `main` as `8416ce8`; final transitive audit remains pending |
 | G5A50.3a | Maintainer reported signing drill successful; source tooling committed at `2366578` |
-| G5A50.3b | Public-ID Gradle variant and updated signing drill prepared; APK metadata and build validation pending maintainer run |
+| G5A50.3b | Public-ID Gradle variant and updated signing drill prepared; later privately built RCs provided additional evidence |
+| G5A50.4e | Maintainer reported RC5 cache/territory fix and persistent watch 5×5 snapshot verified with real hardware |
+| G5A50.5f / RC6 | Maintainer reported successful watch build/upload, accepted Settings/Visualizer hardware UI and 30M/60M authenticated BLE setting logs; 240M logging and prolonged expiry behavior pending |
 
 This table records reported evidence, **not** an external laboratory certification.

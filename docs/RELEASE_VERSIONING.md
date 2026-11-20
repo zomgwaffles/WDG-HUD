@@ -1,6 +1,8 @@
 # Release version policy — G5A50.3b
 
-**Status:** Android release variant identity configured; public v1.0 is **not** approved or published.
+**Status:** Android public release identity is configured; private candidates progressed to **RC6 (10005 / 1.0.0-rc6)**. Public v1.0 is **not** approved or published.
+
+**G5A50.5f note:** The RC6 version is a **private signed test artifact**, not the checked-in release Gradle identity or a public version tag. The source baseline is `662f93c`; prior candidate builder scripts enforce historical Git SHA checks. Preserve the existing release signing certificate and public application ID during upgrades.
 
 - Engineering `G5Axx` labels are not public semantic versions.
 - **Debug:** `com.example.wdghud`, `versionCode=1`, `versionName=1.0`, existing debug signing. This stays on the current phone with all locally stored data.

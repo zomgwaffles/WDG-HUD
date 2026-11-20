@@ -2,6 +2,8 @@
 
 **Status:** Source-build instructions for the current development tree, not a verified public release installer. Windows/Android is the tested developer workflow. Follow both halves; the watch by itself does not fetch WDGWars data.
 
+The current watch gestures, Settings choices and BLE recovery behavior are illustrated in the [watch interaction map](images/watch-interaction-map.png) ([one-page PDF](images/watch-interaction-map.pdf)); see [User Guide](USER_GUIDE.md). These are pre-release documents and do not replace the hardware acceptance checklist.
+
 ## 1. Hardware and prerequisites
 
 - **Watch:** Waveshare ESP32-S3 Touch AMOLED 2.06-inch watch/development board with the project's supported CO5300 display and original pin wiring.

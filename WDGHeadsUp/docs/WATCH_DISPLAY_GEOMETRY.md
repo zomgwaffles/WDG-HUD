@@ -7,6 +7,8 @@
 
 > **Authority rule:** Hardware calibration (when completed) > official Waveshare display examples > verified firmware coordinates > visual mockups. **Never treat an AI-generated illustration or a photographic perspective as pixel-exact geometry.**
 
+**G5A50.5f documentation note (2026-11-20):** This file records the *approved HUD geometry contract* and earlier revisions, not a full rendering specification for every newer settings page. A [one-page interaction map](../../docs/images/watch-interaction-map.png) documents the current 3×3/5×5, Sector Intel, Operator, GANG and Visualizer controls. Its illustrations are not pixel-perfect substitutes for verifying actual hardware. No watch geometry/source is changed by this documentation pass.
+
 ## 1. Confirmed hardware and vendor-supplied model
 
 | Property | Value | Confidence |

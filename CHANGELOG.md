@@ -2,6 +2,24 @@
 
 This is a **development-history summary**, not a claim of published GitHub releases. Version identifiers `G5Axx` are internal accepted milestones. Android's current `versionName = "1.0"` should not be treated as proof of a published public v1.0. Entries through G5A46.2 derive from the engineering handoff and were checked against the current project structure; later milestones also reflect maintainer-reported local tests.
 
+## Unreleased — documentation sync to G5A50.5f (2026-11-20)
+
+- Added an approved **2700 × 2040** one-page watch interaction map (PNG and PDF) under `docs/images/`.
+- Updated existing user, architectural, testing, installation, signing and release-gate documentation. No firmware/Android functionality, signing keys, or stored data changed in this documentation pass.
+- Recorded private RC6 evidence without claiming public v1.0 acceptance.
+
+## G5A50.5a–5f — Accepted Settings / Visualizer and Android RC6 (2026-11-19)
+
+- Watch Settings: three brightness choices and AP freshness presets **30M/60M/240M**, default **60M**; Visualizer subpage has OFF/SOLID/RAINBOW modes and a visible selected-color outline.
+- Watch GANG: tap-anywhere return to OPERATOR; last-good 3×3 and previously saved 5×5 inspection center persist across reboot.
+- Private signed Android RC6 (`10005`, `1.0.0-rc6`) accepts 30M and 60M BLE settings per maintainer log; 240M log confirmation and long-run cadence are pending.
+- Source checkpoint `662f93c`; private RC builds are **not** public release artifacts.
+
+## G5A50.4d–4e — Hourly portal freshness and persistent 5×5 cache (2026-11-19)
+
+- Separate hourly minimum freshness for portal ownership and profile/GANG intelligence; AP sector details remain independently configurable.
+- Fixed a territory-refresh radius validation failure in the Android prefetch/ownership path and retained cached 5×5 watch inspection after reboot; maintainers reported successful sync/hardware behavior.
+
 ## Unreleased — G5A50.2 (licensing and release metadata, 2026-11-18)
 
 - Selected GPL-3.0-only for original project code; added unmodified root GPLv3 text and third-party dependency notices.

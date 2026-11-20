@@ -8,13 +8,21 @@ WDG // HUD shows nearby WDGWars geographic-sector intelligence on a [Waveshare E
 
 This is a community project, not an official WDGWars application. Respect WDGWars service requirements and local privacy laws while collecting location/radio data.
 
+## Visual watch guide
+
+![WDG // HUD watch interaction map: all nine screens and supported touch, gesture, and BOOT controls](docs/images/watch-interaction-map.png)
+
+[Open full-resolution PNG](docs/images/watch-interaction-map.png) · [One-page PDF](docs/images/watch-interaction-map.pdf) · [Complete watch controls](docs/USER_GUIDE.md) · [Pre-release notes](docs/RELEASE_NOTES_G5A50_5f.md)
+
+The illustration is based on device photographs and the current code, with example values. It is not a live screenshot.
+
 ## What it does
 
 - **3×3 driving HUD:** north-up sector grid, nearby AP totals/levels, gang-color boundaries, and one GPS-bearing direction arrow.
-- **5×5 inspection:** swipe left to view the *same GPS center* and surrounding 25-sector cache; opening it does not start another 7×7 scan.
+- **5×5 inspection:** swipe left to view the *same GPS center* and surrounding 25-sector cache with **AP totals only**; swipe right to return. Opening it does not start a 7×7 scan.
 - **Sector Intel:** inspect previously obtained sector information.
 - **OPERATOR / GANG:** account information with last-good snapshots. GANG shows rank, member count, Wi-Fi, BLE, total, and credits; there is no separate user-facing MEMBERS page.
-- **SETTINGS:** LOW/MED/HIGH brightness; AP staleness interval from 1–240 minutes (30 by default); optional microphone visualizer settings.
+- **SETTINGS:** LOW/MED/HIGH brightness; AP-detail freshness presets **30M / 60M / 240M** (**60M default**); separate OFF/SOLID/RAINBOW microphone visualizer controls. Ownership/GANG/profile retain separate hourly refresh limits.
 - **Automatic driving session:** starts when the watch successfully connects, with foreground/background GPS and BLE handoff on Android.
 - **Offline-first retention:** cumulative Android sector history, permanent geographic anchors, and watch-side last-good persistence. Missing or failed requests must not be represented as zero APs.
 

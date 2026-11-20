@@ -1,6 +1,6 @@
 # Engineering architecture — WDG // HUD
 
-**Source baseline for this document:** `main` at `7cd7d1c` (2026-11-17), including G5A49.1 profile-card configuration and G5A49.2 boundary tests. This document describes the observed implementation; it is not a claim that every hardware failure path has been field-certified.
+**Source baseline for this documentation update:** `main` at [`662f93c`](https://github.com/zomgwaffles/WDG-HUD/commit/662f93c) (G5A50.5f, 2026-11-19). Earlier G5A49 implementation details are retained where still applicable; this document is not a claim of independently verified hardware failure-path acceptance.
 
 ## Data path
 
@@ -70,7 +70,11 @@ The permanent anchor registry stores immutable bounds in SQLite, separately from
 
 **Account switching:** G5A49.4d added authenticated `OWNER` handshake (verified-username-derived token) and account-scoped watch OPERATOR/GANG NVS records; legacy unscoped personal data is not restored after scoping is activated. The maintainer reported passing same-account/offline reboot hardware checks. Real A → B → A hardware acceptance, including interrupted transfers, remains a release gate.
 
-**Staleness:** default 30 minutes, user-configurable 1–240 minutes; stale *data* is still useful display data. Absence, API timeout, and confirmed no-AP are separate states. Background fetches must not erase validated values.
+**Staleness:** default **60 minutes**, watch presets **30/60/240 minutes** for AP-detail freshness only. Ownership, GANG, and Operator/profile are independently constrained to an hourly minimum. Stale *data* is still useful display data. Absence, API timeout, and confirmed no-AP are separate states. Background fetches must not erase validated values.
+
+**Accepted watch presentation:** Physical 5×5 inspection renders AP totals only (plus unknown/zero distinction), although the geographic cache stores additional tier/ownership records. The user-facing 5×5 screen is inspection-only and shares the 3×3 GPS center.
+
+**Watch control contract:** `Touch.cpp` implements swipe left 3×3→5×5, right 5×5→3×3, up→OPERATOR, sector tap→Intel, gang-name tap→GANG, gear→SETTINGS, and Visualizer state controls. The physical BOOT button retries BLE advertising only while disconnected. See the [one-page watch map](images/watch-interaction-map.png).
 
 ## BLE contract (implementation overview, not a frozen wire specification)
 

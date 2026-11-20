@@ -1,6 +1,8 @@
 # Android release signing — G5A50.3b (public-ID acceptance drill)
 
-**Status:** Build configuration and signing drill only. **No public v1.0 APK has been approved.**
+**Status:** Private signing drills and RC1–RC6 acceptance builds have been reported; **no public v1.0 APK has been approved.**
+
+**G5A50.5f update:** Maintainer-reported RC6 uses the **existing** private release signing identity for `io.github.zomgwaffles.wdghud`, test code `10005`, name `1.0.0-rc6`. The checked-in release variant remains the public placeholder `10000` / `1.0.0`. Legacy build scripts pin older Git commits, so do not rerun on `662f93c` without a source and signing review. Keep all keystore material and passwords outside Git.
 
 ## Application separation
 

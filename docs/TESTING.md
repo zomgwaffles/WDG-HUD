@@ -55,10 +55,10 @@ Use the actual detected COM port if the uploader cannot find the board. Preserve
 - [ ] Minimize Android: its service takes over; reopen: Activity retakes BLE; exactly one GATT writer.
 - [ ] Phone GPS fix and course-over-ground reach watch and update center/heading when valid.
 - [ ] 3×3 borders, arrow, status icons and progress bar have no visual regressions.
-- [ ] 5×5 uses the same header/footer/GPS center and cached data; opening it does not trigger a new 7×7 scan.
+- [ ] 5×5 uses the same header/footer/GPS center and cache; **on-watch tiles display AP totals only**, swipe left enters from 3×3 and swipe right returns, and opening it never starts 7×7 prefetch.
 - [ ] Sector Intel opens/back without clearing any adjacent cached tile.
-- [ ] OPERATOR and GANG show correct stored values; GANG has RANK/MEMBERS counts, no separate MEMBERS page.
-- [ ] SETTINGS brightness and 1–240-minute stale-age choices survive watch restart.
+- [ ] OPERATOR and GANG display the **same gang name**; GANG has RANK/MEMBERS, no separate MEMBERS page; tap anywhere returns to OPERATOR. Verify the cyan segmented PCB borders against actual watch photos.
+- [ ] SETTINGS LOW/MED/HIGH and 30M/60M/240M choices survive watch restart; OFF hides visualizer MODE/COLOR, SOLID highlights the selected swatch, and RAINBOW hides swatches.
 - [ ] WDGWars website login no longer shows retired AP-level diagnostic buttons (G5A48).
 - [ ] A saved profile card displays the chosen user's card, persists after app restart and can be removed (G5A49.1).
 - [ ] G5A50.1 privacy rules: verify the release manifest has `allowBackup=false` and correct cloud/transfer extraction rules; test an in-place app upgrade retains existing local AP history and encrypted credentials.
@@ -68,7 +68,7 @@ Use the actual detected COM port if the uploader cannot find the board. Preserve
 - [ ] With mobile data disabled, GPS crossing into adjacent coordinate sectors recenters using local geometry; no network request is required for the crossing decision.
 - [ ] Drive/record multiple 25-sector windows, return to an old region, verify historical AP data is immediately restored.
 - [ ] Interrupted sync, failed API, missing/water sector or no APs does **not** erase a different valid sector.
-- [ ] Stale settings changed 30 → 5 → 60 minutes affect eligibility, not original timestamps or historical data.
+- [ ] Stale settings changed **30 → 60 → 240** minutes emit authenticated `CFG:STALE` messages, affect **AP-detail eligibility only**, and preserve original timestamps/history. GANG/ownership/profile hourly minimum is unaffected.
 - [ ] API successful timestamps advance only after validated complete responses; failures do not mark data fresh.
 - [ ] Watch offline after power loss/reboot still shows last-good 3×3, OPERATOR and GANG summaries.
 - [ ] GANG data refreshes while Android is running, without a partial response overwriting the complete saved state.

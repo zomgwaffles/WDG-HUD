@@ -31,13 +31,19 @@ pio test -e native
 
 The native environment needs a working host C++ compiler, and native tests do **not** validate watch drivers, actual touch hardware, radio encryption, or the AMOLED display. Always follow up with the physical watch checks in [`../docs/TESTING.md`](../docs/TESTING.md).
 
+## Watch interaction map
+
+![Approved nine-screen watch controls](../docs/images/watch-interaction-map.png)
+
+[One-page PDF](../docs/images/watch-interaction-map.pdf) · [Complete user guide](../docs/USER_GUIDE.md)
+
 ## Navigation and behavior
 
 - The **3×3** sector HUD is the default power-on screen.
 - Swipe **left** from 3×3 for the **5×5** cached inspection screen; swipe **right** to return.
-- Tap a sector to open **Sector Intel**; navigate back from Intel using the watch touch gestures.
-- Swipe **up** to OPERATOR. Tap the gang name for **GANG**, or tap the settings gear for **SETTINGS**. There is **no separate touch-accessible MEMBERS screen**.
-- SETTINGS includes LOW/MED/HIGH brightness and AP staleness threshold (1–240 minutes). Visualizer settings are a separate settings page.
+- Tap a sector to open **Sector Intel**; tap or swipe down to return to the originating grid. The actual 5×5 watch layout shows AP totals only.
+- Swipe **up** to OPERATOR. Tap the gang name for **GANG** (tap anywhere to return), or tap the gear for **SETTINGS**. Swipe down to exit secondary pages. There is **no separate touch-accessible MEMBERS screen**.
+- SETTINGS includes LOW/MED/HIGH brightness and AP freshness **30M / 60M / 240M** (default **60M**). VISUALIZER opens a separate page with OFF/SOLID/RAINBOW and a selectable color palette only in SOLID mode.
 - If BLE is disconnected, a short **BOOT/GPIO0** press can retry BLE advertising. Do not treat it as a reset button or press it while deliberately booting into download mode.
 
 **Persistence:** The watch stores validated last-good sector/OPERATOR state and a GANG summary in NVS. Data is intended to remain visible after BLE loss or reboot. Android supplies the latest data and authenticated profile updates; the watch does not contact WDGWars directly.

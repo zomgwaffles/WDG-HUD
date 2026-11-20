@@ -1,7 +1,15 @@
 # WDG // HUD — G5A50.3b Pre-v1.0 release audit
 
-**Current source baseline:** GitHub `main` at `236657824ac3c672d3f489441ab8bd203e4e4953` (G5A50.3a, 2026-11-18 UTC). Source review, not a clean checkout or independently reproduced release build.
+**Historical audit source baseline:** GitHub `main` at `2366578` (G5A50.3a, 2026-11-18). This original audit predates the current `662f93c` source checkpoint (G5A50.5f). The update below records later maintainer evidence without replacing missing release-gate tests.
 **Scope:** Source, packaging configuration, public docs, Android backup defaults. No clean-room installation, secret-history scan, independent penetration test, or external device validation was performed as part of this source audit.
+
+## G5A50.5f evidence update (2026-11-20)
+
+- `main` source checkpoint: `662f93c`, with current watch Settings / Visualizer UI and Android RC6 interval support. Approved watch interaction map and new guide assets are part of this documentation pass, not firmware changes.
+- Privately installed signed release candidate **RC6 / 10005 / 1.0.0-rc6** was observed to accept 30M and 60M settings over BLE; 240M explicit logs and a measured full TTL cycle remain pending.
+- Watch build/upload and visualizer selection treatment were reported successful. 5×5 inspection persists and shows AP totals only on the observed physical panel.
+- **Still blocking a public v1.0 claim:** third-party dependency/asset license audit; clean third-party hardware install; two-account A→B→A privacy regression; artifact signing/hash and secrets/history checks; and sustained GPS/BLE/offline/TTL tests.
+- Private RC APKs are test-only. Distribution intent is direct sideloading, not Play Store. Do not mistake successful developer tests for release certification.
 
 ## Release decision
 

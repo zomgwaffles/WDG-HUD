@@ -2,6 +2,14 @@
 
 **Purpose:** privately validate a clean public-app installation and a same-certificate, higher-version in-place upgrade. **Not a public release.** The existing debug app is never removed, and watch NVS is never erased. The script builds two APKs in a temporary detached Git worktree, leaving the checked-in application ID/version untouched.
 
+## Current release-candidate note — G5A50.5f / RC6 (2026-11-20)
+
+This document's RC1→RC2 commands are a **historical private acceptance procedure**, **not** instructions to rebuild those versions on current `main`. The older script pins commit `60445c9` and is expected to reject source checkpoint `662f93c`.
+
+Maintainer-reported private candidates progressed to signed **RC5 / code 10004** and **RC6 / code 10005** under release application ID `io.github.zomgwaffles.wdghud`. For RC6 (`1.0.0-rc6`), Android logs confirmed `CFG:STALE,30`/`STALE_INTERVAL=30` and `CFG:STALE,60`/`STALE_INTERVAL=60`, alongside successful AP prefetch/retry. Explicit `240` log proof, extended TTL and independent clean install/account-switch acceptance are still needed.
+
+**Do not run** `Build-G5A50_5a-RC6.ps1` from current commit without reviewing its expected-HEAD guard: it is pinned to `fb0c802` and intentionally rejects later changes. Never remove signing/identity checks merely to make a build pass; build a **new** reviewed candidate for the future public-release work. Do not uninstall existing apps or wipe watch NVS during upgrade verification.
+
 ## 1. Build two signed candidates (no installation)
 
 From the repository root (`C:\Users\zomgw\Documents\GitHub\WDG-HUD`):

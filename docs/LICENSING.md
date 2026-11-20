@@ -41,7 +41,11 @@ selection does not prove that every upstream asset can be redistributed.
 
 ## Android application ID during development
 
-Keep existing `applicationId = "com.example.wdghud"` unchanged for current
-installations, and avoid changing signing identity during in-place debug app
-updates. A separate public identity (and data migration plan, if needed) is a
-future release decision. No package rename or signing changes are made here.
+Debug/test installations keep `com.example.wdghud` (debug signing). The separate
+release variant uses `io.github.zomgwaffles.wdghud` and an independently stored
+private release signing key. These two application IDs have **separate app data**;
+there is no automatic credential or AP-history migration between them.
+
+Privately signed RC6 used test-only versionCode `10005` / versionName
+`1.0.0-rc6`. The checked-in release variant is still `10000` / `1.0.0`.
+Do not publish an unapproved release or expose the signing key in Git.
