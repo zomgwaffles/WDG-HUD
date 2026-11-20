@@ -2,8 +2,6 @@
 
 **Offline-first ESP32-S3 watch HUD + Android companion for [WDGWars](https://wdgwars.pl/).**
 
-> **Project status:** Active development / pre-release. The project is functional on the maintainers' test hardware; it has **not** passed a clean-install, third-party v1.0 acceptance cycle. Android's current `versionName = "1.0"` is a Gradle setting, **not** a published v1.0 release.
-
 WDG // HUD shows nearby WDGWars geographic-sector intelligence on a [Waveshare ESP32-S3 Touch AMOLED 2.06-inch](https://www.waveshare.com/esp32-s3-touch-amoled-2.06.htm) watch. An Android companion supplies phone GPS and heading, authenticated WDGWars data, persistent history, and secure Bluetooth Low Energy (BLE) synchronization. The watch can continue showing its **last validated data** when the phone, internet, or BLE link is unavailable.
 
 This is a community project, not an official WDGWars application. Respect WDGWars service requirements and local privacy laws while collecting location/radio data.
